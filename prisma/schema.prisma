@@ -1,0 +1,854 @@
+// PostgreSQL y el SQL oficial administran CHECK, triggers, extensiones e índices parciales/funcionales.
+// No usar db push ni migrate reset para reconstruir este esquema.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AccountBalanceSnapshot {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId         String           @map("account_id") @db.Uuid
+  balance           Decimal          @db.Decimal(18, 2)
+  capturedAt        DateTime         @map("captured_at") @db.Timestamptz(6)
+  source            String           @default("SYSTEM") @db.VarChar(40)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  financialAccounts FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([accountId, capturedAt])
+  @@map("account_balance_snapshots")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model AiInsight {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId  String       @map("workspace_id") @db.Uuid
+  type         insight_type
+  title        String       @db.VarChar(180)
+  summary      String
+  severity     Int          @default(1) @db.SmallInt
+  confidence   Decimal?     @db.Decimal(5, 4)
+  data         Json         @default("{}")
+  validFrom    DateTime?    @map("valid_from") @db.Timestamptz(6)
+  validUntil   DateTime?    @map("valid_until") @db.Timestamptz(6)
+  isRead       Boolean      @default(false) @map("is_read")
+  isDismissed  Boolean      @default(false) @map("is_dismissed")
+  modelVersion String?      @map("model_version") @db.VarChar(100)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspaces   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_insights_workspace_created")
+  @@map("ai_insights")
+}
+
+model AuditLog {
+  id          BigInt     @id @default(autoincrement())
+  workspaceId String?    @map("workspace_id") @db.Uuid
+  userId      String?    @map("user_id") @db.Uuid
+  entityType  String     @map("entity_type") @db.VarChar(80)
+  entityId    String?    @map("entity_id") @db.Uuid
+  action      String     @db.VarChar(50)
+  oldData     Json?      @map("old_data")
+  newData     Json?      @map("new_data")
+  ipAddress   String?    @map("ip_address") @db.Inet
+  userAgent   String?    @map("user_agent")
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  users       User?      @relation(fields: [userId], references: [id], onUpdate: NoAction)
+  workspaces  Workspace? @relation(fields: [workspaceId], references: [id], onUpdate: NoAction)
+
+  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_audit_workspace_created")
+  @@map("audit_logs")
+}
+
+model AuthIdentity {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  provider        provider_type
+  providerSubject String        @map("provider_subject") @db.VarChar(255)
+  providerEmail   String?       @map("provider_email") @db.Citext
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  users           User          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@map("auth_identities")
+}
+
+model BudgetAccount {
+  budgetId          String           @map("budget_id") @db.Uuid
+  accountId         String           @map("account_id") @db.Uuid
+  financialAccounts FinancialAccount @relation(fields: [accountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  budgets           Budget           @relation(fields: [budgetId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([budgetId, accountId])
+  @@map("budget_accounts")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model BudgetCategory {
+  budgetId        String   @map("budget_id") @db.Uuid
+  categoryId      String   @map("category_id") @db.Uuid
+  allocatedAmount Decimal? @map("allocated_amount") @db.Decimal(18, 2)
+  budgets         Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  categories      Category @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([budgetId, categoryId])
+  @@map("budget_categories")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Budget {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String           @map("workspace_id") @db.Uuid
+  name             String           @db.VarChar(120)
+  period           budget_period    @default(MONTHLY)
+  startsOn         DateTime         @map("starts_on") @db.Date
+  endsOn           DateTime         @map("ends_on") @db.Date
+  amount           Decimal          @db.Decimal(18, 2)
+  currency         String           @db.Char(3)
+  alertThreshold   Decimal          @default(80) @map("alert_threshold") @db.Decimal(5, 2)
+  rolloverEnabled  Boolean          @default(false) @map("rollover_enabled")
+  isActive         Boolean          @default(true) @map("is_active")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  budgetAccounts   BudgetAccount[]
+  budgetCategories BudgetCategory[]
+  workspaces       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("budgets")
+}
+
+model Category {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId           String?                @map("workspace_id") @db.Uuid
+  parentId              String?                @map("parent_id") @db.Uuid
+  name                  String                 @db.VarChar(100)
+  type                  category_type
+  icon                  String?                @db.VarChar(80)
+  color                 String?                @db.VarChar(20)
+  isSystem              Boolean                @default(false) @map("is_system")
+  isActive              Boolean                @default(true) @map("is_active")
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  budgetCategories      BudgetCategory[]
+  categories            Category?              @relation("categoriesTocategories", fields: [parentId], references: [id], onUpdate: NoAction)
+  otherCategories       Category[]             @relation("categoriesTocategories")
+  workspaces            Workspace?             @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  merchantCategoryRules MerchantCategoryRule[]
+  transactionSplits     TransactionSplit[]
+  transactions          Transaction[]
+
+  @@map("categories")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model DebtInstallment {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  debtId            String             @map("debt_id") @db.Uuid
+  installmentNumber Int                @map("installment_number")
+  dueDate           DateTime           @map("due_date") @db.Date
+  openingBalance    Decimal            @map("opening_balance") @db.Decimal(18, 2)
+  principalAmount   Decimal            @default(0) @map("principal_amount") @db.Decimal(18, 2)
+  interestAmount    Decimal            @default(0) @map("interest_amount") @db.Decimal(18, 2)
+  insuranceAmount   Decimal            @default(0) @map("insurance_amount") @db.Decimal(18, 2)
+  feeAmount         Decimal            @default(0) @map("fee_amount") @db.Decimal(18, 2)
+  totalAmount       Decimal            @map("total_amount") @db.Decimal(18, 2)
+  paidAmount        Decimal            @default(0) @map("paid_amount") @db.Decimal(18, 2)
+  closingBalance    Decimal            @map("closing_balance") @db.Decimal(18, 2)
+  status            installment_status @default(PENDING)
+  paidAt            DateTime?          @map("paid_at") @db.Timestamptz(6)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+  debts             Debt               @relation(fields: [debtId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  debtPayments      DebtPayment[]
+
+  @@unique([debtId, installmentNumber])
+  @@index([dueDate, status], map: "idx_installments_due_status")
+  @@map("debt_installments")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model DebtPayment {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  debtId             String           @map("debt_id") @db.Uuid
+  installmentId      String?          @map("installment_id") @db.Uuid
+  transactionId      String           @unique @map("transaction_id") @db.Uuid
+  paidAt             DateTime         @map("paid_at") @db.Timestamptz(6)
+  totalAmount        Decimal          @map("total_amount") @db.Decimal(18, 2)
+  principalAmount    Decimal          @default(0) @map("principal_amount") @db.Decimal(18, 2)
+  interestAmount     Decimal          @default(0) @map("interest_amount") @db.Decimal(18, 2)
+  insuranceAmount    Decimal          @default(0) @map("insurance_amount") @db.Decimal(18, 2)
+  feeAmount          Decimal          @default(0) @map("fee_amount") @db.Decimal(18, 2)
+  extraPaymentAmount Decimal          @default(0) @map("extra_payment_amount") @db.Decimal(18, 2)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  debts              Debt             @relation(fields: [debtId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  debtInstallments   DebtInstallment? @relation(fields: [installmentId], references: [id], onUpdate: NoAction)
+  transactions       Transaction      @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+
+  @@map("debt_payments")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Debt {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId        String            @map("workspace_id") @db.Uuid
+  liabilityAccountId String?           @map("liability_account_id") @db.Uuid
+  name               String            @db.VarChar(150)
+  lenderName         String?           @map("lender_name") @db.VarChar(150)
+  type               debt_type
+  status             debt_status       @default(ACTIVE)
+  currency           String            @default("COP") @db.Char(3)
+  originalAmount     Decimal           @map("original_amount") @db.Decimal(18, 2)
+  currentBalance     Decimal           @map("current_balance") @db.Decimal(18, 2)
+  annualInterestRate Decimal           @default(0) @map("annual_interest_rate") @db.Decimal(8, 5)
+  interestType       interest_type     @default(FIXED) @map("interest_type")
+  termMonths         Int?              @map("term_months")
+  installmentAmount  Decimal?          @map("installment_amount") @db.Decimal(18, 2)
+  disbursementDate   DateTime?         @map("disbursement_date") @db.Date
+  firstPaymentDate   DateTime?         @map("first_payment_date") @db.Date
+  paymentDay         Int?              @map("payment_day") @db.SmallInt
+  estimatedEndDate   DateTime?         @map("estimated_end_date") @db.Date
+  notes              String?
+  metadata           Json              @default("{}")
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  debtInstallments   DebtInstallment[]
+  debtPayments       DebtPayment[]
+  financialAccounts  FinancialAccount? @relation(fields: [liabilityAccountId], references: [id], onUpdate: NoAction)
+  workspaces         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  financialEvents    FinancialEvent[]
+
+  @@map("debts")
+}
+
+model DeviceToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  token      String    @unique
+  platform   String    @db.VarChar(20)
+  deviceName String?   @map("device_name") @db.VarChar(150)
+  isActive   Boolean   @default(true) @map("is_active")
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  users      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("device_tokens")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model FinancialAccount {
+  id                                                              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                                                     String                   @map("workspace_id") @db.Uuid
+  name                                                            String                   @db.VarChar(120)
+  type                                                            account_type
+  nature                                                          account_nature           @default(ASSET)
+  institutionName                                                 String?                  @map("institution_name") @db.VarChar(120)
+  currency                                                        String                   @default("COP") @db.Char(3)
+  openingBalance                                                  Decimal                  @default(0) @map("opening_balance") @db.Decimal(18, 2)
+  currentBalance                                                  Decimal                  @default(0) @map("current_balance") @db.Decimal(18, 2)
+  creditLimit                                                     Decimal?                 @map("credit_limit") @db.Decimal(18, 2)
+  billingDay                                                      Int?                     @map("billing_day") @db.SmallInt
+  paymentDueDay                                                   Int?                     @map("payment_due_day") @db.SmallInt
+  color                                                           String?                  @db.VarChar(20)
+  icon                                                            String?                  @db.VarChar(80)
+  isFavorite                                                      Boolean                  @default(false) @map("is_favorite")
+  isActive                                                        Boolean                  @default(true) @map("is_active")
+  includeInNetWorth                                               Boolean                  @default(true) @map("include_in_net_worth")
+  createdAt                                                       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                                                       DateTime                 @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt                                                       DateTime?                @map("deleted_at") @db.Timestamptz(6)
+  accountBalanceSnapshots                                         AccountBalanceSnapshot[]
+  budgetAccounts                                                  BudgetAccount[]
+  debts                                                           Debt[]
+  workspaces                                                      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  savingsGoals                                                    SavingsGoal[]
+  transactionsTransactionsAccountIdTofinancialAccounts            Transaction[]            @relation("transactions_account_idTofinancial_accounts")
+  transactionsTransactionsDestinationAccountIdTofinancialAccounts Transaction[]            @relation("transactions_destination_account_idTofinancial_accounts")
+
+  @@unique([workspaceId, name])
+  @@map("financial_accounts")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model FinancialEvent {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String          @map("workspace_id") @db.Uuid
+  type                 event_type
+  title                String          @db.VarChar(160)
+  description          String?
+  amount               Decimal?        @db.Decimal(18, 2)
+  currency             String          @default("COP") @db.Char(3)
+  startsAt             DateTime        @map("starts_at") @db.Timestamptz(6)
+  endsAt               DateTime?       @map("ends_at") @db.Timestamptz(6)
+  recurrenceRuleId     String?         @map("recurrence_rule_id") @db.Uuid
+  relatedTransactionId String?         @map("related_transaction_id") @db.Uuid
+  relatedDebtId        String?         @map("related_debt_id") @db.Uuid
+  relatedGoalId        String?         @map("related_goal_id") @db.Uuid
+  isCompleted          Boolean         @default(false) @map("is_completed")
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+  recurrenceRules      RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id], onUpdate: NoAction)
+  debts                Debt?           @relation(fields: [relatedDebtId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  savingsGoals         SavingsGoal?    @relation(fields: [relatedGoalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  transactions         Transaction?    @relation(fields: [relatedTransactionId], references: [id], onUpdate: NoAction)
+  workspaces           Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([workspaceId, startsAt], map: "idx_events_workspace_start")
+  @@map("financial_events")
+}
+
+model FinancialSimulation {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  createdBy   String    @map("created_by") @db.Uuid
+  name        String?   @db.VarChar(160)
+  question    String
+  inputData   Json      @map("input_data")
+  resultData  Json      @map("result_data")
+  explanation String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  users       User      @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  workspaces  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("financial_simulations")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Forecast {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String        @map("workspace_id") @db.Uuid
+  type            forecast_type
+  periodStart     DateTime      @map("period_start") @db.Date
+  periodEnd       DateTime      @map("period_end") @db.Date
+  projectedAmount Decimal       @map("projected_amount") @db.Decimal(18, 2)
+  lowerBound      Decimal?      @map("lower_bound") @db.Decimal(18, 2)
+  upperBound      Decimal?      @map("upper_bound") @db.Decimal(18, 2)
+  confidence      Decimal?      @db.Decimal(5, 4)
+  assumptions     Json          @default("{}")
+  modelVersion    String?       @map("model_version") @db.VarChar(100)
+  generatedAt     DateTime      @default(now()) @map("generated_at") @db.Timestamptz(6)
+  workspaces      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([workspaceId, type, periodStart, periodEnd], map: "idx_forecasts_workspace_period")
+  @@map("forecasts")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model GoalContribution {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  goalId        String       @map("goal_id") @db.Uuid
+  transactionId String?      @map("transaction_id") @db.Uuid
+  amount        Decimal      @db.Decimal(18, 2)
+  contributedAt DateTime     @map("contributed_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  savingsGoals  SavingsGoal  @relation(fields: [goalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  transactions  Transaction? @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+
+  @@map("goal_contributions")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model MerchantCategoryRule {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String    @map("workspace_id") @db.Uuid
+  merchantPattern String    @map("merchant_pattern") @db.VarChar(200)
+  categoryId      String    @map("category_id") @db.Uuid
+  confidence      Decimal   @default(1) @db.Decimal(5, 4)
+  usageCount      Int       @default(0) @map("usage_count")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  categories      Category  @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  workspaces      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([workspaceId, merchantPattern])
+  @@map("merchant_category_rules")
+}
+
+model Notification {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String            @map("user_id") @db.Uuid
+  workspaceId  String?           @map("workspace_id") @db.Uuid
+  type         notification_type
+  title        String            @db.VarChar(160)
+  message      String
+  data         Json              @default("{}")
+  scheduledFor DateTime?         @map("scheduled_for") @db.Timestamptz(6)
+  sentAt       DateTime?         @map("sent_at") @db.Timestamptz(6)
+  readAt       DateTime?         @map("read_at") @db.Timestamptz(6)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  users        User              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workspaces   Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("notifications")
+}
+
+model OutboxEvent {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String?    @map("workspace_id") @db.Uuid
+  aggregateType String     @map("aggregate_type") @db.VarChar(80)
+  aggregateId   String     @map("aggregate_id") @db.Uuid
+  eventType     String     @map("event_type") @db.VarChar(120)
+  payload       Json
+  occurredAt    DateTime   @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  processedAt   DateTime?  @map("processed_at") @db.Timestamptz(6)
+  retryCount    Int        @default(0) @map("retry_count")
+  lastError     String?    @map("last_error")
+  workspaces    Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("outbox_events")
+}
+
+model Permission {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String           @unique @db.VarChar(100)
+  description String?
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model RecurrenceRule {
+  id              String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String               @map("workspace_id") @db.Uuid
+  frequency       recurrence_frequency
+  intervalValue   Int                  @default(1) @map("interval_value")
+  dayOfWeek       Int?                 @map("day_of_week") @db.SmallInt
+  dayOfMonth      Int?                 @map("day_of_month") @db.SmallInt
+  startsOn        DateTime             @map("starts_on") @db.Date
+  endsOn          DateTime?            @map("ends_on") @db.Date
+  nextRunAt       DateTime?            @map("next_run_at") @db.Timestamptz(6)
+  isActive        Boolean              @default(true) @map("is_active")
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime             @default(now()) @map("updated_at") @db.Timestamptz(6)
+  financialEvents FinancialEvent[]
+  workspaces      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  transactions    Transaction[]
+
+  @@map("recurrence_rules")
+}
+
+model RefreshToken {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String        @map("user_id") @db.Uuid
+  familyId         String        @map("family_id") @db.Uuid
+  parentTokenId    String?       @unique @map("parent_token_id") @db.Uuid
+  replacedById     String?       @unique @map("replaced_by_id") @db.Uuid
+  tokenHash        String        @unique @map("token_hash")
+  deviceName       String?       @map("device_name") @db.VarChar(150)
+  ipAddress        String?       @map("ip_address") @db.Inet
+  userAgent        String?       @map("user_agent")
+  expiresAt        DateTime      @map("expires_at") @db.Timestamptz(6)
+  usedAt           DateTime?     @map("used_at") @db.Timestamptz(6)
+  revokedAt        DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  revocationReason String?       @map("revocation_reason") @db.VarChar(80)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  users            User          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  parentToken      RefreshToken? @relation("RefreshTokenRotation", fields: [parentTokenId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  childToken       RefreshToken? @relation("RefreshTokenRotation")
+  replacedBy       RefreshToken? @relation("RefreshTokenReplacement", fields: [replacedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacedToken    RefreshToken? @relation("RefreshTokenReplacement")
+
+  @@index([familyId], map: "idx_refresh_tokens_family")
+  @@index([userId, revokedAt], map: "idx_refresh_tokens_user_active")
+  @@index([expiresAt], map: "idx_refresh_tokens_expires")
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  tokenHash        String    @unique @map("token_hash")
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt       DateTime? @map("consumed_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  requestIpAddress String?   @map("request_ip_address") @db.Inet
+  userAgent        String?   @map("user_agent")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, revokedAt, consumedAt], map: "idx_password_reset_user_active")
+  @@index([expiresAt], map: "idx_password_reset_expires")
+  @@map("password_reset_tokens")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Role {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code             String            @unique @db.VarChar(50)
+  name             String            @db.VarChar(100)
+  description      String?
+  isSystem         Boolean           @default(true) @map("is_system")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  permissions      RolePermission[]
+  workspaceMembers WorkspaceMember[]
+
+  @@map("roles")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model SavingsGoal {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId       String             @map("workspace_id") @db.Uuid
+  accountId         String?            @map("account_id") @db.Uuid
+  name              String             @db.VarChar(150)
+  targetAmount      Decimal            @map("target_amount") @db.Decimal(18, 2)
+  savedAmount       Decimal            @default(0) @map("saved_amount") @db.Decimal(18, 2)
+  targetDate        DateTime?          @map("target_date") @db.Date
+  status            goal_status        @default(ACTIVE)
+  icon              String?            @db.VarChar(80)
+  color             String?            @db.VarChar(20)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime?          @map("deleted_at") @db.Timestamptz(6)
+  financialEvents   FinancialEvent[]
+  goalContributions GoalContribution[]
+  financialAccounts FinancialAccount?  @relation(fields: [accountId], references: [id], onUpdate: NoAction)
+  workspaces        Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("savings_goals")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model TransactionAttachment {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String      @map("transaction_id") @db.Uuid
+  storageKey    String      @map("storage_key")
+  fileName      String      @map("file_name") @db.VarChar(255)
+  mimeType      String      @map("mime_type") @db.VarChar(120)
+  sizeBytes     BigInt      @map("size_bytes")
+  uploadedBy    String      @map("uploaded_by") @db.Uuid
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  transactions  Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users         User        @relation(fields: [uploadedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("transaction_attachments")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model TransactionSplit {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String      @map("transaction_id") @db.Uuid
+  categoryId    String      @map("category_id") @db.Uuid
+  amount        Decimal     @db.Decimal(18, 2)
+  notes         String?     @db.VarChar(250)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  categories    Category    @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transactions  Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("transaction_splits")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model Transaction {
+  id                                                                   String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                                                          String                  @map("workspace_id") @db.Uuid
+  type                                                                 transaction_type
+  status                                                               transaction_status      @default(CONFIRMED)
+  amount                                                               Decimal                 @db.Decimal(18, 2)
+  currency                                                             String                  @default("COP") @db.Char(3)
+  accountId                                                            String?                 @map("account_id") @db.Uuid
+  destinationAccountId                                                 String?                 @map("destination_account_id") @db.Uuid
+  categoryId                                                           String?                 @map("category_id") @db.Uuid
+  recurrenceRuleId                                                     String?                 @map("recurrence_rule_id") @db.Uuid
+  parentTransactionId                                                  String?                 @map("parent_transaction_id") @db.Uuid
+  occurredAt                                                           DateTime                @map("occurred_at") @db.Timestamptz(6)
+  description                                                          String?                 @db.VarChar(250)
+  notes                                                                String?
+  merchantName                                                         String?                 @map("merchant_name") @db.VarChar(150)
+  latitude                                                             Decimal?                @db.Decimal(9, 6)
+  longitude                                                            Decimal?                @db.Decimal(9, 6)
+  isAiCategorized                                                      Boolean                 @default(false) @map("is_ai_categorized")
+  aiConfidence                                                         Decimal?                @map("ai_confidence") @db.Decimal(5, 4)
+  externalReference                                                    String?                 @map("external_reference") @db.VarChar(200)
+  metadata                                                             Json                    @default("{}")
+  version                                                              Int                     @default(1)
+  createdBy                                                            String                  @map("created_by") @db.Uuid
+  createdAt                                                            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                                                            DateTime                @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt                                                            DateTime?               @map("deleted_at") @db.Timestamptz(6)
+  debtPayments                                                         DebtPayment?
+  financialEvents                                                      FinancialEvent[]
+  goalContributions                                                    GoalContribution[]
+  transactionAttachments                                               TransactionAttachment[]
+  transactionSplits                                                    TransactionSplit[]
+  financialAccountsTransactionsAccountIdTofinancialAccounts            FinancialAccount?       @relation("transactions_account_idTofinancial_accounts", fields: [accountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  categories                                                           Category?               @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                                                User                    @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  financialAccountsTransactionsDestinationAccountIdTofinancialAccounts FinancialAccount?       @relation("transactions_destination_account_idTofinancial_accounts", fields: [destinationAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transactions                                                         Transaction?            @relation("transactionsTotransactions", fields: [parentTransactionId], references: [id], onUpdate: NoAction)
+  otherTransactions                                                    Transaction[]           @relation("transactionsTotransactions")
+  recurrenceRules                                                      RecurrenceRule?         @relation(fields: [recurrenceRuleId], references: [id], onUpdate: NoAction)
+  workspaces                                                           Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("transactions")
+}
+
+model UserPreference {
+  userId             String     @id @map("user_id") @db.Uuid
+  defaultWorkspaceId String?    @map("default_workspace_id") @db.Uuid
+  language           String     @default("es-CO") @db.VarChar(10)
+  currency           String     @default("COP") @db.Char(3)
+  timezone           String     @default("America/Bogota") @db.VarChar(60)
+  dateFormat         String     @default("DD/MM/YYYY") @map("date_format") @db.VarChar(20)
+  theme              String     @default("SYSTEM") @db.VarChar(20)
+  startScreen        String     @default("DASHBOARD") @map("start_screen") @db.VarChar(50)
+  dashboardLayout    Json       @default("{}") @map("dashboard_layout")
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+  workspaces         Workspace? @relation(fields: [defaultWorkspaceId], references: [id], onUpdate: NoAction)
+  users              User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("user_preferences")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model User {
+  id                                               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                                            String                  @unique @db.Citext
+  passwordHash                                     String?                 @map("password_hash")
+  firstName                                        String                  @map("first_name") @db.VarChar(80)
+  lastName                                         String?                 @map("last_name") @db.VarChar(80)
+  phone                                            String?                 @db.VarChar(30)
+  avatarUrl                                        String?                 @map("avatar_url")
+  isEmailVerified                                  Boolean                 @default(false) @map("is_email_verified")
+  isActive                                         Boolean                 @default(true) @map("is_active")
+  lastLoginAt                                      DateTime?               @map("last_login_at") @db.Timestamptz(6)
+  createdAt                                        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                                        DateTime                @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt                                        DateTime?               @map("deleted_at") @db.Timestamptz(6)
+  auditLogs                                        AuditLog[]
+  authIdentities                                   AuthIdentity[]
+  deviceTokens                                     DeviceToken[]
+  financialSimulations                             FinancialSimulation[]
+  notifications                                    Notification[]
+  passwordResetTokens                              PasswordResetToken[]
+  refreshTokens                                    RefreshToken[]
+  transactionAttachments                           TransactionAttachment[]
+  transactions                                     Transaction[]
+  userPreferences                                  UserPreference?
+  workspaceMembersWorkspaceMembersInvitedByTousers WorkspaceMember[]       @relation("workspace_members_invited_byTousers")
+  workspaceMembersWorkspaceMembersUserIdTousers    WorkspaceMember[]       @relation("workspace_members_user_idTousers")
+  workspaces                                       Workspace[]
+
+  @@map("users")
+}
+
+model WorkspaceMember {
+  workspaceId                           String        @map("workspace_id") @db.Uuid
+  userId                                String        @map("user_id") @db.Uuid
+  roleId                                String        @map("role_id") @db.Uuid
+  status                                member_status @default(ACTIVE)
+  invitedBy                             String?       @map("invited_by") @db.Uuid
+  joinedAt                              DateTime?     @map("joined_at") @db.Timestamptz(6)
+  createdAt                             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  usersWorkspaceMembersInvitedByTousers User?         @relation("workspace_members_invited_byTousers", fields: [invitedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles                                 Role          @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usersWorkspaceMembersUserIdTousers    User          @relation("workspace_members_user_idTousers", fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workspaces                            Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([workspaceId, userId])
+  @@index([userId, status], map: "idx_workspace_members_user")
+  @@map("workspace_members")
+}
+
+model Workspace {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String                 @db.VarChar(120)
+  type                  workspace_type         @default(PERSONAL)
+  baseCurrency          String                 @default("COP") @map("base_currency") @db.Char(3)
+  timezone              String                 @default("America/Bogota") @db.VarChar(60)
+  ownerUserId           String                 @map("owner_user_id") @db.Uuid
+  isActive              Boolean                @default(true) @map("is_active")
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  aiInsights            AiInsight[]
+  auditLogs             AuditLog[]
+  budgets               Budget[]
+  categories            Category[]
+  debts                 Debt[]
+  financialAccounts     FinancialAccount[]
+  financialEvents       FinancialEvent[]
+  financialSimulations  FinancialSimulation[]
+  forecasts             Forecast[]
+  merchantCategoryRules MerchantCategoryRule[]
+  notifications         Notification[]
+  outboxEvents          OutboxEvent[]
+  recurrenceRules       RecurrenceRule[]
+  savingsGoals          SavingsGoal[]
+  transactions          Transaction[]
+  userPreferences       UserPreference[]
+  workspaceMembers      WorkspaceMember[]
+  users                 User                   @relation(fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("workspaces")
+}
+
+enum account_nature {
+  ASSET
+  LIABILITY
+}
+
+enum account_type {
+  CASH
+  CHECKING
+  SAVINGS
+  E_WALLET
+  CREDIT_CARD
+  INVESTMENT
+  LOAN
+  OTHER
+}
+
+enum budget_period {
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+enum category_type {
+  INCOME
+  EXPENSE
+  TRANSFER
+  INVESTMENT
+}
+
+enum debt_status {
+  ACTIVE
+  PAID
+  PAUSED
+  DEFAULTED
+  CANCELLED
+}
+
+enum debt_type {
+  PERSONAL_LOAN
+  BANK_LOAN
+  CREDIT_CARD
+  MORTGAGE
+  VEHICLE_LOAN
+  EDUCATION_LOAN
+  OTHER
+}
+
+enum event_type {
+  INCOME
+  EXPENSE
+  DEBT_PAYMENT
+  CARD_PAYMENT
+  SAVINGS_GOAL
+  REMINDER
+  OTHER
+}
+
+enum forecast_type {
+  CASH_FLOW
+  EXPENSES
+  INCOME
+  SAVINGS
+  NET_WORTH
+  LIQUIDITY
+}
+
+enum goal_status {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  CANCELLED
+}
+
+enum insight_type {
+  CLASSIFICATION
+  SPENDING_PATTERN
+  LIQUIDITY_RISK
+  FORECAST
+  RECOMMENDATION
+  ANOMALY
+}
+
+enum installment_status {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum interest_type {
+  FIXED
+  VARIABLE
+  NONE
+}
+
+enum member_status {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+enum notification_type {
+  BUDGET_ALERT
+  PAYMENT_DUE
+  LIQUIDITY_RISK
+  UNUSUAL_SPENDING
+  INCOME_DROP
+  GOAL_PROGRESS
+  SYSTEM
+}
+
+enum provider_type {
+  LOCAL
+  GOOGLE
+  APPLE
+}
+
+enum recurrence_frequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum transaction_status {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum transaction_type {
+  INCOME
+  EXPENSE
+  TRANSFER
+  INVESTMENT
+  DEBT_PAYMENT
+  ADJUSTMENT
+  REFUND
+}
+
+enum workspace_type {
+  PERSONAL
+  FAMILY
+  BUSINESS
+}

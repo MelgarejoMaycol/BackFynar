@@ -1,0 +1,13 @@
+import { Router } from "express";
+import { requirePermission } from "../workspaces/workspace-context.js";
+import * as controller from "./transactions.controller.js";
+const router = Router({ mergeParams: true });
+router.get("/", requirePermission("transactions.read"), controller.list);
+router.get("/:transactionId", requirePermission("transactions.read"), controller.get);
+router.post("/income", requirePermission("transactions.write"), controller.income);
+router.post("/expense", requirePermission("transactions.write"), controller.expense);
+router.post("/transfer", requirePermission("transactions.write"), controller.transfer);
+router.post("/adjustment", requirePermission("transactions.write"), controller.adjustment);
+router.patch("/:transactionId", requirePermission("transactions.write"), controller.update);
+router.delete("/:transactionId", requirePermission("transactions.write"), controller.cancel);
+export default router;

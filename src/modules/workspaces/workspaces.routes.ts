@@ -1,0 +1,23 @@
+import { Router } from "express";
+import { authenticate } from "../../common/middlewares/authenticate.js";
+import { resolveWorkspaceContext } from "./workspace-context.js";
+import * as controller from "./workspaces.controller.js";
+import accountsRouter from "../accounts/accounts.routes.js";
+import categoriesRouter from "../categories/categories.routes.js";
+import transactionsRouter from "../transactions/transactions.routes.js";
+import dashboardRouter from "../dashboard/dashboard.routes.js";
+import budgetsRouter from "../budgets/budgets.routes.js";
+import reportsRouter from "../reports/reports.routes.js";
+
+const router = Router();
+router.use(authenticate);
+router.get("/", controller.list);
+router.use("/:workspaceId/accounts", resolveWorkspaceContext, accountsRouter);
+router.use("/:workspaceId/categories", resolveWorkspaceContext, categoriesRouter);
+router.use("/:workspaceId/transactions", resolveWorkspaceContext, transactionsRouter);
+router.use("/:workspaceId/dashboard", resolveWorkspaceContext, dashboardRouter);
+router.use("/:workspaceId/budgets", resolveWorkspaceContext, budgetsRouter);
+router.use("/:workspaceId/reports", resolveWorkspaceContext, reportsRouter);
+router.get("/:workspaceId", resolveWorkspaceContext, controller.get);
+router.post("/:workspaceId/select", resolveWorkspaceContext, controller.select);
+export default router;

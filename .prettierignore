@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+artifacts/
+.clean-validation-*/
+package-lock.json
+*.log
+*.tmp
+*.bak
+prisma/schema.introspected.prisma
+.env
+.env.*
+!.env.example

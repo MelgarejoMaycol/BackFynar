@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+*.log
+*.tmp
+*.bak
+prisma/schema.introspected.prisma
+artifacts/
+.clean-validation-*/
+.DS_Store
+.vscode/
+.idea/
