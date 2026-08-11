@@ -77,7 +77,11 @@ const schema = z.object({
     .default(AUTH_PASSWORD_PARALLELISM_DEFAULT),
 });
 
-const result = schema.safeParse(process.env);
+const runtimeEnvironment = {
+  ...process.env,
+  ...(process.env.RENDER === "true" ? { NODE_ENV: "production" } : {}),
+};
+const result = schema.safeParse(runtimeEnvironment);
 if (!result.success) throw new Error(`Configuración inválida: ${z.prettifyError(result.error)}`);
 export const env = result.data;
 if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET === DEVELOPMENT_JWT_SECRET)

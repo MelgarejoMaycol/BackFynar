@@ -20,6 +20,16 @@ import app from "../src/app.js";
 import { logger } from "../src/common/logging/logger.js";
 
 describe("infraestructura HTTP", () => {
+  it("expone una ruta raíz para las sondas de la plataforma", async () => {
+    const get = await request(app).get("/");
+    const head = await request(app).head("/");
+    expect(get.status).toBe(200);
+    expect(get.body).toMatchObject({
+      success: true,
+      data: { service: "Fynar API", status: "ok", healthPath: "/api/v1/health/live" },
+    });
+    expect(head.status).toBe(200);
+  });
   it("no confia en proxies por defecto", () => {
     expect(app.get("trust proxy")).toBe(false);
   });

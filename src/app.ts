@@ -63,6 +63,22 @@ app.use(
 );
 
 /**
+ * Punto de entrada público para comprobaciones de plataforma y visitantes.
+ */
+app.get("/", (_request, response) => {
+  response.status(200).json({
+    success: true,
+    data: {
+      service: "Fynar API",
+      status: "ok",
+      apiVersion: env.API_VERSION,
+      apiBasePath: env.API_PREFIX,
+      healthPath: `${env.API_PREFIX}/health/live`,
+    },
+  });
+});
+
+/**
  * Rutas principales de la API.
  */
 app.use(env.API_PREFIX, indexRoutes);
