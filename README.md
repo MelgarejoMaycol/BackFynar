@@ -44,3 +44,6 @@ El repositorio incluye `render.yaml` con Node.js LTS, compilación reproducible 
 health check `/api/v1/health/live`. En el servicio deben definirse `DATABASE_URL`,
 `JWT_ACCESS_SECRET`, `CORS_ORIGINS` y `APP_WEB_URL`. Resend y Cloudinary son
 integraciones opcionales: cuando se habilitan, sus credenciales sí son obligatorias.
+El script `postinstall` también genera `dist`, de modo que los servicios existentes
+configurados con el comando de build predeterminado `npm install` producen el artefacto
+necesario antes de ejecutar `node dist/server.js`.
