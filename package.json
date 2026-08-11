@@ -4,7 +4,7 @@
   "description": "API backend de Fynar para gestión financiera personal",
   "private": true,
   "engines": {
-    "node": ">=20.11.0"
+    "node": "22.x"
   },
   "main": "dist/server.js",
   "type": "module",

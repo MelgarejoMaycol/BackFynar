@@ -37,3 +37,10 @@ npm run build
 ```
 
 Consulta [README_FYNAR.md](./README_FYNAR.md) para la documentación técnica y funcional ampliada.
+
+## Render
+
+El repositorio incluye `render.yaml` con Node.js LTS, compilación reproducible y el
+health check `/api/v1/health/live`. En el servicio deben definirse `DATABASE_URL`,
+`JWT_ACCESS_SECRET`, `CORS_ORIGINS` y `APP_WEB_URL`. Resend y Cloudinary son
+integraciones opcionales: cuando se habilitan, sus credenciales sí son obligatorias.

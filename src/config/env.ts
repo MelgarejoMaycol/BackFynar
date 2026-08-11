@@ -80,8 +80,6 @@ const schema = z.object({
 const result = schema.safeParse(process.env);
 if (!result.success) throw new Error(`Configuración inválida: ${z.prettifyError(result.error)}`);
 export const env = result.data;
-if (env.NODE_ENV === "production" && env.EMAIL_PROVIDER !== "resend")
-  throw new Error("EMAIL_PROVIDER=resend es obligatorio en produccion");
 if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET === DEVELOPMENT_JWT_SECRET)
   throw new Error("JWT_ACCESS_SECRET debe configurarse explicitamente en produccion");
 if (env.EMAIL_PROVIDER === "resend" && !env.RESEND_API_KEY)
@@ -98,8 +96,6 @@ const cloudinaryValues = [
 ];
 if (cloudinaryValues.some(Boolean) && !cloudinaryValues.every(Boolean))
   throw new Error("Las tres credenciales de Cloudinary deben configurarse juntas");
-if (env.NODE_ENV === "production" && !cloudinaryValues.every(Boolean))
-  throw new Error("Las credenciales de Cloudinary son obligatorias en producción");
 export function requireDatabaseUrl() {
   if (!env.DATABASE_URL) throw new Error("DATABASE_URL es obligatoria para acceder a PostgreSQL");
 }
