@@ -1,4 +1,4 @@
-# Veloryx
+# Fynar
 
 > Plataforma web y móvil para administrar, comprender y anticipar la situación financiera personal mediante reglas financieras, análisis de datos e inteligencia artificial.
 
@@ -6,7 +6,7 @@
 
 ## 1. Propósito de este documento
 
-Este archivo es la referencia técnica y funcional principal del proyecto **Veloryx**.
+Este archivo es la referencia técnica y funcional principal del proyecto **Fynar**.
 
 Debe utilizarse como contexto obligatorio antes de:
 
@@ -25,7 +25,7 @@ Debe utilizarse como contexto obligatorio antes de:
 
 Este README busca evitar que una persona o una inteligencia artificial implemente código sin comprender:
 
-1. qué problema resuelve Veloryx;
+1. qué problema resuelve Fynar;
 2. qué funcionalidades pertenecen al MVP;
 3. qué funcionalidades son futuras;
 4. cómo está organizada la arquitectura;
@@ -39,7 +39,7 @@ Cuando exista una contradicción entre una implementación y este documento, se 
 
 ## 2. Resumen ejecutivo
 
-Veloryx es un **copiloto financiero personal** disponible desde web y móvil.
+Fynar es un **copiloto financiero personal** disponible desde web y móvil.
 
 No debe limitarse a registrar ingresos y gastos. Su propósito es ayudar al usuario a responder tres preguntas de manera permanente:
 
@@ -79,7 +79,7 @@ Debe estimar y explicar situaciones como:
 - cuál podría ser su saldo en una fecha determinada;
 - si su situación financiera está mejorando o empeorando.
 
-Veloryx no debe sentirse como un programa contable. Debe sentirse como un asesor financiero personal, claro, rápido y orientado a decisiones.
+Fynar no debe sentirse como un programa contable. Debe sentirse como un asesor financiero personal, claro, rápido y orientado a decisiones.
 
 ---
 
@@ -91,7 +91,7 @@ La plataforma almacenará información, aplicará reglas financieras, calculará
 
 ### Visión a largo plazo
 
-Veloryx debe poder evolucionar desde una aplicación personal hacia una plataforma que también soporte:
+Fynar debe poder evolucionar desde una aplicación personal hacia una plataforma que también soporte:
 
 - espacios financieros familiares;
 - contadores con múltiples clientes;
@@ -125,7 +125,7 @@ Muchas personas no saben con precisión:
 
 Las aplicaciones financieras tradicionales suelen presentar datos y gráficas, pero con frecuencia no traducen esos datos en decisiones concretas.
 
-Veloryx busca cubrir esa necesidad combinando:
+Fynar busca cubrir esa necesidad combinando:
 
 - registro financiero;
 - reglas de negocio;
@@ -144,7 +144,7 @@ Crear un asistente financiero inteligente que permita administrar, analizar y pr
 
 ## 6. Objetivos específicos
 
-Veloryx debe permitir:
+Fynar debe permitir:
 
 - registrar ingresos;
 - registrar gastos;
@@ -543,7 +543,7 @@ En el MVP se utilizará principalmente `OWNER`, pero el código no debe asumir q
 
 ## 12. Arquitectura del backend
 
-Veloryx comienza como un **monolito modular**.
+Fynar comienza como un **monolito modular**.
 
 Esto significa:
 
@@ -588,7 +588,7 @@ Los controladores no deben contener consultas SQL directas ni reglas financieras
 ### 12.3 Estructura de carpetas
 
 ```text
-veloryx-backend/
+fynar-backend/
 ├── src/
 │   ├── config/
 │   ├── common/
@@ -1951,7 +1951,7 @@ STORAGE_PROVIDER=
 STORAGE_BUCKET=
 ```
 
-Veloryx utiliza `.env` para la configuración local; este archivo nunca debe versionarse, adjuntarse ni incluirse en paquetes compartidos. `.env.example` conserva únicamente nombres y valores ficticios para documentar el contrato de configuración y sí forma parte del código fuente.
+Fynar utiliza `.env` para la configuración local; este archivo nunca debe versionarse, adjuntarse ni incluirse en paquetes compartidos. `.env.example` conserva únicamente nombres y valores ficticios para documentar el contrato de configuración y sí forma parte del código fuente.
 
 ---
 
@@ -2230,7 +2230,7 @@ La secuencia recomendada inmediata es:
 
 ## 33. Licencia y estado del producto
 
-Veloryx se encuentra en fase de diseño y desarrollo inicial.
+Fynar se encuentra en fase de diseño y desarrollo inicial.
 
 La licencia definitiva, política de contribución, modelo comercial y condiciones de uso deben definirse antes de aceptar contribuciones externas o publicar el código como proyecto abierto.
 
@@ -2238,7 +2238,7 @@ La licencia definitiva, política de contribución, modelo comercial y condicion
 
 ## 34. Nota final
 
-Veloryx debe crecer de forma progresiva y disciplinada.
+Fynar debe crecer de forma progresiva y disciplinada.
 
 La prioridad no es añadir la mayor cantidad posible de funcionalidades, sino construir una base confiable para datos financieros. Cualquier cambio que pueda afectar saldos, movimientos, permisos, privacidad, sesiones o sincronización debe tratarse como un cambio crítico.
 
@@ -2253,10 +2253,10 @@ La regla principal del proyecto es:
 ### Requisitos e instalación
 
 - Node.js LTS (validado localmente con Node 24.11.1).
-- PostgreSQL con el esquema creado por `veloryx_reset_y_recrear.sql`.
+- PostgreSQL con el esquema creado por `fynar_reset_y_recrear.sql`.
 - `npm install`.
 
-Crear `.env` directamente en la raíz de `BackVeloryx` y completar las variables documentadas abajo. No se debe ejecutar el script SQL de reset sobre una base con datos. La aplicación no crea tablas ni ejecuta migraciones; Prisma representa el subconjunto utilizado en este bloque y respeta los nombres físicos con `@map`/`@@map`.
+Crear `.env` directamente en la raíz de `BackFynar` y completar las variables documentadas abajo. No se debe ejecutar el script SQL de reset sobre una base con datos. La aplicación no crea tablas ni ejecuta migraciones; Prisma representa el subconjunto utilizado en este bloque y respeta los nombres físicos con `@map`/`@@map`.
 
 Para Neon, `DATABASE_URL` recibe la cadena completa obtenida desde **Connect → Connection string** con **Connection pooling** activado. Branch, Compute, Database y Role se seleccionan en Neon, pero no se guardan como variables separadas: usuario, contraseña, host pooled, base y opciones SSL ya están incluidos dentro de la URL.
 
@@ -2323,7 +2323,7 @@ Los permisos no tienen endpoint público. Los valores `COP`, `es-CO` y los temas
 
 - El backend fue migrado mecánicamente a TypeScript estricto con NodeNext/ESM. Los imports internos conservan extensión `.js` para que la salida de `tsc` sea ejecutable directamente por Node.
 - El SQL oficial se aplicó el 4 de agosto de 2026 después de confirmar que no existían usuarios ni datos financieros. La instancia usa PostgreSQL 18.4.
-- Neon utiliza temporalmente una única rama llamada `production` como entorno exclusivo de desarrollo; la base lógica es `neondb`. Veloryx aún no está publicado, no tiene usuarios reales y, por limitación del plan actual, desarrollo e integración no están separados.
+- Neon utiliza temporalmente una única rama llamada `production` como entorno exclusivo de desarrollo; la base lógica es `neondb`. Fynar aún no está publicado, no tiene usuarios reales y, por limitación del plan actual, desarrollo e integración no están separados.
 - PostgreSQL contiene **33 tablas**, 19 enums, 19 índices explícitos, 14 triggers y las extensiones `pgcrypto` y `citext`. `npm run db:verify` contrasta nombres, claves, restricciones y tipos mediante consultas de solo lectura.
 - Prisma representa las 33 tablas mediante modelos PascalCase, mappings físicos y relaciones reconciliadas contra introspección real. La siguiente fase es autenticación; no está iniciada.
 
@@ -2395,10 +2395,10 @@ La factory aplica los mismos mínimos que la configuración central y rechaza va
 
 Este texto describía el estado previo al cierre de la Fase 1. El bloque de autenticación descrito en la sección siguiente reemplaza ese estado: registro, login, JWT, sesiones rotatorias, logout y recuperación ya forman parte de la API. RBAC de negocio permanece fuera de esta fase.
 
-La ruta del SQL para el inventario se resuelve, en orden, desde el argumento, `VELORYX_SQL_PATH` o ubicaciones relativas conocidas. Uso portátil recomendado:
+La ruta del SQL para el inventario se resuelve, en orden, desde el argumento, `FYNAR_SQL_PATH` o ubicaciones relativas conocidas. Uso portátil recomendado:
 
 ```powershell
-npm run sql:inventory -- "../veloryx_reset_y_recrear.sql"
+npm run sql:inventory -- "../fynar_reset_y_recrear.sql"
 ```
 
 ### Empaquetado seguro
@@ -2406,16 +2406,16 @@ npm run sql:inventory -- "../veloryx_reset_y_recrear.sql"
 No compartir `.env` ni dependencias instaladas. Desde la raíz del backend, una forma reproducible de crear el ZIP con `tar` es:
 
 ```powershell
-$packageTemp = Join-Path $env:TEMP ("BackVeloryx-" + [guid]::NewGuid())
+$packageTemp = Join-Path $env:TEMP ("BackFynar-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $packageTemp | Out-Null
 robocopy . $packageTemp /E /XD node_modules coverage /XF .env .env.* *.log *.tmp *.bak schema.introspected.prisma
-tar -a -c -f ../BackVeloryx-source.zip -C $packageTemp .
+tar -a -c -f ../BackFynar-source.zip -C $packageTemp .
 Remove-Item -LiteralPath $packageTemp -Recurse -Force
 ```
 
 El directorio temporal tiene un nombre generado y se elimina solo después de comprimirlo. Revisar el contenido antes de compartir y confirmar que no contiene ningún archivo `.env`.
 
-El procedimiento automatizado preferido es `npm run source:pack`. Usa una lista permitida, crea `artifacts/BackVeloryx-source.zip` y rechaza si detecta `.env`, `node_modules`, `dist`, cobertura, logs, temporales, backups o un schema introspectado temporal.
+El procedimiento automatizado preferido es `npm run source:pack`. Usa una lista permitida, crea `artifacts/BackFynar-source.zip` y rechaza si detecta `.env`, `node_modules`, `dist`, cobertura, logs, temporales, backups o un schema introspectado temporal.
 
 ### Pulido final de calidad y observabilidad
 
@@ -2426,7 +2426,7 @@ El procedimiento automatizado preferido es `npm run source:pack`. Usa una lista 
 - Al comenzar `SIGINT`/`SIGTERM`, el lifecycle marca `APPLICATION_SHUTTING_DOWN`; readiness deja de consultar PostgreSQL y devuelve 503 para solicitudes que ya estén en curso.
 - `npm run verify` ejecuta typecheck, ESLint, Prettier, pruebas, build y validación Prisma sin conectarse a PostgreSQL.
 - `npm run clean` elimina únicamente `dist`, `coverage` y carpetas locales `.clean-validation-*`; nunca elimina `.env`, fuentes, schema Prisma ni lockfile.
-- El artefacto que debe compartirse es `artifacts/BackVeloryx-source.zip`, generado y verificado mediante `npm run source:pack`. No compartir manualmente la carpeta de trabajo completa.
+- El artefacto que debe compartirse es `artifacts/BackFynar-source.zip`, generado y verificado mediante `npm run source:pack`. No compartir manualmente la carpeta de trabajo completa.
 
 # Fase 1 — Autenticación
 
@@ -2441,7 +2441,7 @@ La API de autenticación vive bajo `/api/v1/auth` y expone:
 - `POST /forgot-password`: siempre responde de forma neutral.
 - `POST /reset-password`: consume una sola vez el token y revoca todas las sesiones.
 
-Los access tokens son JWT HS256 con `issuer`, `audience`, `subject` y `sid`; el middleware también comprueba en PostgreSQL que la sesión continúe activa. Los refresh y reset tokens son aleatorios de 256 bits y PostgreSQL almacena únicamente SHA-256. El access token se devuelve en JSON y el refresh token se transporta exclusivamente mediante la cookie `veloryx_refresh_token`, inaccesible a JavaScript. La cookie usa `HttpOnly`, alcance `/api/v1/auth`, duración igual a `REFRESH_TOKEN_TTL_DAYS`, `SameSite=Lax` sin `Secure` en localhost y `SameSite=None` con `Secure` en producción HTTPS. CORS admite credenciales solo para los orígenes configurados en `CORS_ORIGINS`.
+Los access tokens son JWT HS256 con `issuer`, `audience`, `subject` y `sid`; el middleware también comprueba en PostgreSQL que la sesión continúe activa. Los refresh y reset tokens son aleatorios de 256 bits y PostgreSQL almacena únicamente SHA-256. El access token se devuelve en JSON y el refresh token se transporta exclusivamente mediante la cookie `fynar_refresh_token`, inaccesible a JavaScript. La cookie usa `HttpOnly`, alcance `/api/v1/auth`, duración igual a `REFRESH_TOKEN_TTL_DAYS`, `SameSite=Lax` sin `Secure` en localhost y `SameSite=None` con `Secure` en producción HTTPS. CORS admite credenciales solo para los orígenes configurados en `CORS_ORIGINS`.
 
 ## Correo de recuperación
 

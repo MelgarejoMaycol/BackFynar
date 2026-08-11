@@ -27,10 +27,10 @@ const included = [
   ".prettierignore",
   ".env.example",
   ".gitignore",
-  "README_VELORYX.md",
+  "README_FYNAR.md",
 ] as const;
-const stagingDirectory = mkdtempSync(join(tmpdir(), "veloryx-source-"));
-const zipPath = join(artifactDirectory, "BackVeloryx-source.zip");
+const stagingDirectory = mkdtempSync(join(tmpdir(), "fynar-source-"));
+const zipPath = join(artifactDirectory, "BackFynar-source.zip");
 
 try {
   for (const relativePath of included) {
@@ -64,13 +64,13 @@ try {
   );
   if (forbidden.length > 0)
     throw new Error(`El paquete contiene rutas prohibidas: ${forbidden.join(", ")}`);
-  for (const required of ["tsconfig.build.json", ".env.example", "README_VELORYX.md"]) {
+  for (const required of ["tsconfig.build.json", ".env.example", "README_FYNAR.md"]) {
     if (!entries.includes(required))
       throw new Error(`El paquete no contiene el archivo requerido: ${required}`);
   }
   console.log(
     JSON.stringify({
-      package: "artifacts/BackVeloryx-source.zip",
+      package: "artifacts/BackFynar-source.zip",
       entries: entries.length,
       verified: true,
     }),

@@ -1,6 +1,6 @@
-# Veloryx API
+# Fynar API
 
-API del MVP de Veloryx construida con Node.js, Express, TypeScript, Prisma y PostgreSQL.
+API del MVP de Fynar construida con Node.js, Express, TypeScript, Prisma y PostgreSQL.
 
 ## Instalación
 
@@ -36,4 +36,4 @@ npm test
 npm run build
 ```
 
-Consulta [README_VELORYX.md](./README_VELORYX.md) para la documentación técnica y funcional ampliada.
+Consulta [README_FYNAR.md](./README_FYNAR.md) para la documentación técnica y funcional ampliada.

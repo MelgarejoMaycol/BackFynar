@@ -10,7 +10,7 @@ import {
 
 describe("cookie de refresh", () => {
   it("usa alcance, expiración y protecciones centralizadas en desarrollo", () => {
-    expect(REFRESH_COOKIE_NAME).toBe("veloryx_refresh_token");
+    expect(REFRESH_COOKIE_NAME).toBe("fynar_refresh_token");
     expect(refreshCookieOptions).toMatchObject({
       httpOnly: true,
       secure: false,

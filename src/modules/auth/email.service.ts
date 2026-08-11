@@ -21,9 +21,9 @@ export class ResendEmailService implements EmailService {
       from: env.EMAIL_FROM,
       to: recipient,
       ...(env.EMAIL_REPLY_TO ? { replyTo: env.EMAIL_REPLY_TO } : {}),
-      subject: "Restablece tu contrasena de Veloryx",
+      subject: "Restablece tu contrasena de Fynar",
       text: `Abre este enlace para restablecer tu contrasena: ${resetUrl}`,
-      html: `<p>Solicitaste restablecer tu contrasena de Veloryx.</p><p><a href="${resetUrl}">Restablecer contrasena</a></p>`,
+      html: `<p>Solicitaste restablecer tu contrasena de Fynar.</p><p><a href="${resetUrl}">Restablecer contrasena</a></p>`,
     });
     if (result.error) throw new Error(`RESEND_SEND_FAILED:${result.error.name}`);
   }

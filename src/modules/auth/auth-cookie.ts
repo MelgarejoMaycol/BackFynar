@@ -1,7 +1,7 @@
 import type { CookieOptions, Response } from "express";
 import { env } from "../../config/env.js";
 
-export const REFRESH_COOKIE_NAME = "veloryx_refresh_token";
+export const REFRESH_COOKIE_NAME = "fynar_refresh_token";
 
 export const createRefreshCookieOptions = (
   nodeEnv: typeof env.NODE_ENV,

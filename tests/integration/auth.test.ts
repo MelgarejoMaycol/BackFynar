@@ -37,14 +37,14 @@ const rawTokenFrom = (cookie: string): string =>
   decodeURIComponent(cookie.slice(cookie.indexOf("=") + 1));
 const expectSecureRefreshCookie = (response: request.Response): void => {
   const header = (response.headers["set-cookie"] as string[] | undefined)?.[0] ?? "";
-  expect(header).toContain("veloryx_refresh_token=");
+  expect(header).toContain("fynar_refresh_token=");
   expect(header).toContain("HttpOnly");
   expect(header).toContain("SameSite=Lax");
   expect(header).toContain("Path=/api/v1/auth");
 };
 const expectClearedRefreshCookie = (response: request.Response): void => {
   const header = (response.headers["set-cookie"] as string[] | undefined)?.[0] ?? "";
-  expect(header).toContain("veloryx_refresh_token=");
+  expect(header).toContain("fynar_refresh_token=");
   expect(header).toMatch(/Expires=Thu, 01 Jan 1970|Max-Age=0/);
 };
 

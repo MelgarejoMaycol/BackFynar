@@ -21,7 +21,7 @@ export async function uploadAvatar(userId: string, buffer: Buffer): Promise<stri
   return new Promise((resolve, reject) => {
     const stream = cloudinaryClient.uploader.upload_stream(
       {
-        public_id: `veloryx/avatars/${userId}/avatar`,
+        public_id: `fynar/avatars/${userId}/avatar`,
         overwrite: true,
         invalidate: true,
         resource_type: "image",

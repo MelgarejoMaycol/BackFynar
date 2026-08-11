@@ -3,16 +3,16 @@ import { resolve } from "node:path";
 
 const candidates = [
   process.argv[2],
-  process.env.VELORYX_SQL_PATH,
-  "../veloryx_reset_y_recrear.sql",
-  "../../veloryx_reset_y_recrear.sql",
+  process.env.FYNAR_SQL_PATH,
+  "../fynar_reset_y_recrear.sql",
+  "../../fynar_reset_y_recrear.sql",
 ]
   .filter((path): path is string => Boolean(path))
   .map((path) => resolve(path));
 const sqlPath = candidates.find(existsSync);
 if (!sqlPath) {
   throw new Error(
-    'No se encontró el SQL. Proporcione la ruta con: npm run sql:inventory -- "../veloryx_reset_y_recrear.sql" o defina VELORYX_SQL_PATH.',
+    'No se encontró el SQL. Proporcione la ruta con: npm run sql:inventory -- "../fynar_reset_y_recrear.sql" o defina FYNAR_SQL_PATH.',
   );
 }
 const sql = readFileSync(sqlPath, "utf8");

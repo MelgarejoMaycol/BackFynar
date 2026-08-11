@@ -1,7 +1,7 @@
 {
-  "name": "backveloryx",
+  "name": "backfynar",
   "version": "1.0.0",
-  "description": "API backend de Veloryx para gestión financiera personal",
+  "description": "API backend de Fynar para gestión financiera personal",
   "private": true,
   "engines": {
     "node": ">=20.11.0"
