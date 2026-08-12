@@ -62,7 +62,7 @@ describe("infraestructura HTTP", () => {
       currency: "COP",
       locale: "es-CO",
       timezone: "America/Bogota",
-      theme: "SYSTEM",
+      theme: "LIGHT",
     });
   });
   it("normaliza rutas inexistentes", async () => {

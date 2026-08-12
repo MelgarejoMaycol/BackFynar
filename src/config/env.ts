@@ -35,8 +35,12 @@ const schema = z.object({
   JWT_AUDIENCE: z.string().min(1).default("fynar-clients"),
   JWT_ACCESS_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
-  EMAIL_PROVIDER: z.enum(["console", "resend"]).default("console"),
+  EMAIL_PROVIDER: z.enum(["console", "resend", "brevo"]).default("console"),
   RESEND_API_KEY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  BREVO_API_KEY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().min(1).optional(),
   ),
@@ -57,6 +61,12 @@ const schema = z.object({
   APP_WEB_URL: z.string().url().default("http://localhost:5173"),
   PASSWORD_RESET_PATH: z.string().startsWith("/").default("/reset-password"),
   PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().min(5).max(60).default(30),
+  EMAIL_VERIFICATION_PATH: z.string().startsWith("/").default("/verify-email"),
+  EMAIL_VERIFICATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(72).default(24),
+  LEGAL_VERSION: z.string().min(1).max(40).default("2026-08-12"),
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_CALLBACK_URL: z.string().url().optional(),
   AUTH_PASSWORD_MEMORY_COST: z.coerce
     .number()
     .int()
@@ -88,6 +98,8 @@ if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET === DEVELOPMENT_JWT_S
   throw new Error("JWT_ACCESS_SECRET debe configurarse explicitamente en produccion");
 if (env.EMAIL_PROVIDER === "resend" && !env.RESEND_API_KEY)
   throw new Error("RESEND_API_KEY es obligatoria cuando EMAIL_PROVIDER=resend");
+if (env.EMAIL_PROVIDER === "brevo" && !env.BREVO_API_KEY)
+  throw new Error("BREVO_API_KEY es obligatoria cuando EMAIL_PROVIDER=brevo");
 if (env.NODE_ENV === "production" && !env.DATABASE_URL)
   throw new Error("DATABASE_URL es obligatoria en producción");
 if (env.NODE_ENV === "development" && !env.DATABASE_URL && !env.ALLOW_DEGRADED_START) {

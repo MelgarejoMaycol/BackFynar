@@ -52,11 +52,13 @@ describe.sequential("Fase 2 real e aislamiento", () => {
     for (const user of users) {
       const response = await request(app)
         .post("/api/v1/auth/register")
-        .send({ email: user.email, password, firstName: user.firstName });
+        .send({ email: user.email, password, firstName: user.firstName, acceptedTerms: true });
       expect(response.status).toBe(201);
       user.id = response.body.data.user.id as string;
-      user.access = response.body.data.tokens.accessToken as string;
-      user.refreshCookie = refreshCookieFrom(response);
+      await prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } });
+      const login = await request(app).post("/api/v1/auth/login").send({ email: user.email, password });
+      user.access = login.body.data.tokens.accessToken as string;
+      user.refreshCookie = refreshCookieFrom(login);
       user.workspaceId = (
         await prisma.workspace.findFirstOrThrow({
           where: { ownerUserId: user.id },

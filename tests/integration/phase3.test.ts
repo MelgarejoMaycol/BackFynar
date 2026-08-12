@@ -36,11 +36,13 @@ describe.sequential("Fase 3 cuentas reales", () => {
     for (const actor of actors) {
       const r = await request(app)
         .post("/api/v1/auth/register")
-        .send({ email: actor.email, password, firstName: "Phase3" });
+        .send({ email: actor.email, password, firstName: "Phase3", acceptedTerms: true });
       expect(r.status).toBe(201);
       actor.id = r.body.data.user.id;
-      actor.access = r.body.data.tokens.accessToken;
-      actor.refreshCookie = refreshCookieFrom(r);
+      await prisma.user.update({ where: { id: actor.id }, data: { isEmailVerified: true } });
+      const login = await request(app).post("/api/v1/auth/login").send({ email: actor.email, password });
+      actor.access = login.body.data.tokens.accessToken;
+      actor.refreshCookie = refreshCookieFrom(login);
       actor.workspaceId = (
         await prisma.workspace.findFirstOrThrow({
           where: { ownerUserId: actor.id },

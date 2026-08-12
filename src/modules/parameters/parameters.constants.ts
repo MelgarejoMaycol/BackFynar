@@ -14,5 +14,5 @@ export const publicParameters = Object.freeze({
     transactionTypes: Object.values(transaction_type),
     categoryTypes: Object.values(category_type),
   },
-  defaults: { currency: "COP", locale: "es-CO", timezone: "America/Bogota", theme: "SYSTEM" },
+  defaults: { currency: "COP", locale: "es-CO", timezone: "America/Bogota", theme: "LIGHT" },
 });

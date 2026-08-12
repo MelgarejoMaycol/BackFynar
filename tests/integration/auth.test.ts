@@ -12,9 +12,13 @@ class CapturingEmailService implements EmailService {
   async sendPasswordReset(input: PasswordResetEmail): Promise<void> {
     this.lastEmail = input;
   }
+  async sendVerification(): Promise<void> {}
 }
 class FailingEmailService implements EmailService {
   async sendPasswordReset(): Promise<void> {
+    throw new Error("synthetic-provider-failure");
+  }
+  async sendVerification(): Promise<void> {
     throw new Error("synthetic-provider-failure");
   }
 }
@@ -79,7 +83,7 @@ describe.sequential("autenticacion real", () => {
     try {
       const response = await request(app)
         .post("/api/v1/auth/register")
-        .send({ email: rollbackEmail, password, firstName: "Rollback" });
+        .send({ email: rollbackEmail, password, firstName: "Rollback", acceptedTerms: true });
       expect(response.status).toBe(409);
       expect(await prisma.user.findUnique({ where: { email: rollbackEmail } })).toBeNull();
       expect(await prisma.workspace.count({ where: { users: { email: rollbackEmail } } })).toBe(0);
@@ -91,13 +95,11 @@ describe.sequential("autenticacion real", () => {
   it("registra atomicamente las cinco entidades y evita duplicados", async () => {
     const response = await request(app)
       .post("/api/v1/auth/register")
-      .send({ email, password, firstName: "Phase", lastName: "Test" });
+      .send({ email, password, firstName: "Phase", lastName: "Test", acceptedTerms: true });
     expect(response.status).toBe(201);
     userId = response.body.data.user.id as string;
-    accessToken = response.body.data.tokens.accessToken as string;
-    refreshCookie = cookieFrom(response);
-    expectSecureRefreshCookie(response);
-    expect(response.body.data.tokens).not.toHaveProperty("refreshToken");
+    expect(response.body.data.verificationRequired).toBe(true);
+    expect(response.headers["set-cookie"]).toBeUndefined();
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: userId },
       include: {
@@ -108,17 +110,25 @@ describe.sequential("autenticacion real", () => {
     });
     expect(user.authIdentities).toHaveLength(1);
     expect(user.authIdentities[0]?.provider).toBe("LOCAL");
+    expect(user.isEmailVerified).toBe(false);
+    expect(user.termsAcceptedAt).not.toBeNull();
+    expect(user.privacyAcceptedAt).not.toBeNull();
+    expect(await prisma.emailVerificationToken.count({ where: { userId } })).toBe(1);
     expect(user.workspaces[0]?.type).toBe("PERSONAL");
     expect(user.workspaces[0]?.workspaceMembers[0]?.roles.code).toBe("OWNER");
     expect(user.userPreferences?.defaultWorkspaceId).toBe(user.workspaces[0]?.id);
     const duplicate = await request(app)
       .post("/api/v1/auth/register")
-      .send({ email, password, firstName: "Duplicate" });
+      .send({ email, password, firstName: "Duplicate", acceptedTerms: true });
     expect(duplicate.status).toBe(409);
     expect(await prisma.user.count({ where: { email } })).toBe(1);
   }, 30_000);
 
   it("protege login, JWT y me", async () => {
+    const unverified = await request(app).post("/api/v1/auth/login").send({ email, password });
+    expect(unverified.status).toBe(403);
+    expect(unverified.body.error.code).toBe("EMAIL_NOT_VERIFIED");
+    await prisma.user.update({ where: { id: userId }, data: { isEmailVerified: true } });
     expect(
       (await request(app).post("/api/v1/auth/login").send({ email, password: "wrong-password" }))
         .status,

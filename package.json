@@ -30,7 +30,10 @@
     "prisma:generate": "tsx scripts/run-prisma-offline.ts generate",
     "prisma:seed": "prisma db seed",
     "prisma:migrate:dev": "prisma migrate dev",
-    "prisma:migrate:deploy": "prisma migrate deploy"
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "email:test": "tsx scripts/test-email.ts",
+    "email:status": "tsx scripts/check-email-delivery.ts",
+    "email:config": "tsx scripts/check-email-configuration.ts"
   },
   "keywords": [
     "node",

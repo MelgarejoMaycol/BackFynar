@@ -10,9 +10,16 @@ const validInput = {
   email: "persona@example.com",
   password: "frase segura",
   firstName: "María-José",
+  acceptedTerms: true as const,
 };
 
 describe("schema de registro", () => {
+  it("rechaza el registro sin aceptación legal", () => {
+    const withoutAcceptance = { ...validInput } as Partial<typeof validInput>;
+    delete withoutAcceptance.acceptedTerms;
+    expect(registerSchema.safeParse(withoutAcceptance).success).toBe(false);
+    expect(registerSchema.safeParse({ ...validInput, acceptedTerms: false }).success).toBe(false);
+  });
   it("acepta y normaliza una entrada válida sin transformar la contraseña", () => {
     const parsed = registerSchema.parse({
       ...validInput,
@@ -22,6 +29,7 @@ describe("schema de registro", () => {
       lastName: "  O'Neill Pérez  ",
     });
     expect(parsed).toEqual({
+      acceptedTerms: true,
       email: "persona@example.com",
       password: "  frase segura con espacios  ",
       firstName: "María-José",

@@ -75,3 +75,6 @@ process.on("uncaughtException", (error) => {
   logger.error("Excepción no controlada", errorContext(error));
   shutdown("uncaughtException", 1);
 });
+if (![env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_CALLBACK_URL].every(Boolean)) {
+  logger.warn("Google OAuth no está configurado; el acceso con Google permanecerá deshabilitado");
+}

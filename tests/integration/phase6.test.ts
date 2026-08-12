@@ -49,10 +49,12 @@ describe.sequential("Fase 6 dashboard financiero real", () => {
     for (const actor of actors) {
       const response = await request(app)
         .post("/api/v1/auth/register")
-        .send({ email: actor.email, password, firstName: "Phase6" });
+        .send({ email: actor.email, password, firstName: "Phase6", acceptedTerms: true });
       expect(response.status).toBe(201);
       actor.id = response.body.data.user.id;
-      actor.access = response.body.data.tokens.accessToken;
+      await prisma.user.update({ where: { id: actor.id }, data: { isEmailVerified: true } });
+      const login = await request(app).post("/api/v1/auth/login").send({ email: actor.email, password });
+      actor.access = login.body.data.tokens.accessToken;
       actor.workspaceId = (
         await prisma.workspace.findFirstOrThrow({ where: { ownerUserId: actor.id } })
       ).id;

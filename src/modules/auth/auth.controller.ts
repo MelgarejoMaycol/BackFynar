@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import type { ZodType } from "zod";
-import { ValidationError } from "../../common/errors/app-error.js";
+import { AppError, ValidationError } from "../../common/errors/app-error.js";
 import { UnauthorizedError } from "../../common/errors/app-error.js";
 import { authService } from "./auth.service.js";
 import {
@@ -9,8 +9,22 @@ import {
   registerSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
+  googleLegalAcceptanceSchema,
+  requestEmailChangeSchema,
+  confirmEmailChangeSchema,
 } from "./auth.schemas.js";
-import { clearRefreshCookie, REFRESH_COOKIE_NAME, setRefreshCookie } from "./auth-cookie.js";
+import {
+  clearGooglePendingCookie,
+  clearRefreshCookie,
+  GOOGLE_PENDING_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+  setGooglePendingCookie,
+  setRefreshCookie,
+} from "./auth-cookie.js";
+import { googleOAuthService } from "./google-oauth.service.js";
+import { env } from "../../config/env.js";
 
 const parse = <T>(schema: ZodType<T>, body: unknown): T => {
   const result = schema.safeParse(body);
@@ -34,17 +48,26 @@ const execute =
 
 export const register = execute(async (request, response) => {
   const result = await authService.register(parse(registerSchema, request.body), metadata(request));
-  setRefreshCookie(response, result.tokens.refreshToken);
   response.status(201).json({
     success: true,
-    data: {
-      user: result.user,
-      tokens: {
-        accessToken: result.tokens.accessToken,
-        accessTokenExpiresInSeconds: result.tokens.accessTokenExpiresInSeconds,
-      },
-    },
+    data: { user: result.user, verificationRequired: true },
   });
+});
+export const verifyEmail = execute(async (request, response) => {
+  await authService.verifyEmail(parse(verifyEmailSchema, request.body).token);
+  response.status(204).send();
+});
+export const resendVerification = execute(async (request, response) => {
+  await authService.resendVerification(
+    parse(resendVerificationSchema, request.body).email,
+    metadata(request),
+  );
+  response
+    .status(202)
+    .json({
+      success: true,
+      data: { message: "Si la cuenta requiere verificación, enviaremos un correo" },
+    });
 });
 export const login = execute(async (request, response) => {
   const input = parse(loginSchema, request.body);
@@ -124,5 +147,92 @@ export const changePassword = execute(async (request, response) => {
     input.currentPassword,
     input.newPassword,
   );
+  response.status(204).send();
+});
+export const google = execute(async (_request, response) => {
+  const destination = new URL("/auth/google/callback", env.APP_WEB_URL);
+  try {
+    response.redirect(302, await googleOAuthService.authorizationUrl());
+  } catch (error: unknown) {
+    destination.searchParams.set("status", "error");
+    destination.searchParams.set(
+      "code",
+      error instanceof AppError ? error.code : "GOOGLE_OAUTH_CALLBACK_FAILED",
+    );
+    response.redirect(302, destination.toString());
+  }
+});
+export const googleCallback = execute(async (request, response) => {
+  const code = typeof request.query.code === "string" ? request.query.code : "";
+  const state = typeof request.query.state === "string" ? request.query.state : "";
+  const destination = new URL("/auth/google/callback", env.APP_WEB_URL);
+  try {
+    const flowId = await googleOAuthService.consumeState(state);
+    if (typeof request.query.error === "string")
+      throw new AppError("Google canceló la autorización", {
+        status: 400,
+        code: "GOOGLE_OAUTH_CALLBACK_FAILED",
+        safeToExpose: true,
+      });
+    const profile = await googleOAuthService.exchangeCode(code);
+    try {
+      const result = await authService.loginWithGoogle(profile, false, metadata(request));
+      setRefreshCookie(response, result.tokens.refreshToken);
+      destination.searchParams.set("status", "success");
+    } catch (error: unknown) {
+      if (!(error instanceof AppError) || error.code !== "LEGAL_ACCEPTANCE_REQUIRED") throw error;
+      setGooglePendingCookie(response, await googleOAuthService.createPending(flowId, profile));
+      destination.pathname = "/auth/google/legal";
+    }
+  } catch (error: unknown) {
+    destination.searchParams.set("status", "error");
+    destination.searchParams.set(
+      "code",
+      error instanceof AppError ? error.code : "GOOGLE_OAUTH_CALLBACK_FAILED",
+    );
+  }
+  response.redirect(302, destination.toString());
+});
+
+export const completeGoogleRegistration = execute(async (request, response) => {
+  parse(googleLegalAcceptanceSchema, request.body);
+  const pendingToken = request.cookies[GOOGLE_PENDING_COOKIE_NAME] as unknown;
+  if (typeof pendingToken !== "string" || !pendingToken)
+    throw new AppError("Registro Google pendiente ausente", {
+      status: 400,
+      code: "GOOGLE_OAUTH_STATE_INVALID",
+      safeToExpose: true,
+    });
+  try {
+    const profile = await googleOAuthService.consumePending(pendingToken);
+    const result = await authService.loginWithGoogle(profile, true, metadata(request));
+    setRefreshCookie(response, result.tokens.refreshToken);
+    response.status(200).json({
+      success: true,
+      data: {
+        user: result.user,
+        tokens: {
+          accessToken: result.tokens.accessToken,
+          accessTokenExpiresInSeconds: result.tokens.accessTokenExpiresInSeconds,
+        },
+      },
+    });
+  } finally {
+    clearGooglePendingCookie(response);
+  }
+});
+export const requestEmailChange = execute(async (request, response) => {
+  const input = parse(requestEmailChangeSchema, request.body);
+  response.status(202).json({ success: true, data: await authService.requestEmailChange(request.auth!.userId, input.newEmail, input.currentPassword, metadata(request)) });
+});
+export const confirmEmailChange = execute(async (request, response) => {
+  await authService.confirmEmailChange(parse(confirmEmailChangeSchema, request.body).token);
+  response.status(204).send();
+});
+export const getPendingEmailChange = execute(async (request, response) => {
+  response.status(200).json({ success: true, data: await authService.getPendingEmailChange(request.auth!.userId) });
+});
+export const cancelEmailChange = execute(async (request, response) => {
+  await authService.cancelEmailChange(request.auth!.userId);
   response.status(204).send();
 });

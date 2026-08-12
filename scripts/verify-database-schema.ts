@@ -14,15 +14,19 @@ const expectedTables = [
   "debt_payments",
   "debts",
   "device_tokens",
+  "email_verification_tokens",
+  "email_change_requests",
   "financial_accounts",
   "financial_events",
   "financial_simulations",
   "forecasts",
   "goal_contributions",
+  "google_oauth_flows",
   "merchant_category_rules",
   "notifications",
   "outbox_events",
   "password_reset_tokens",
+  "pending_registrations",
   "permissions",
   "recurrence_rules",
   "refresh_tokens",
@@ -80,6 +84,12 @@ const expectedIndexes = [
   "idx_audit_workspace_created",
   "idx_password_reset_user_active",
   "idx_password_reset_expires",
+  "idx_email_verification_user_active",
+  "idx_email_verification_expires",
+  "idx_google_oauth_flows_expires",
+  "idx_pending_registrations_expires",
+  "idx_email_change_user_active",
+  "idx_email_change_expires",
   "idx_refresh_tokens_family",
   "idx_refresh_tokens_user_active",
   "idx_refresh_tokens_expires",
@@ -180,6 +190,12 @@ async function main(): Promise<void> {
   }
   for (const key of ["users.email", "auth_identities.provider_email"])
     if (typedColumns.get(key)?.udt_name !== "citext") missing.push(`citext:${key}`);
+  for (const key of [
+    "users.terms_accepted_at",
+    "users.privacy_accepted_at",
+    "users.legal_version",
+  ])
+    if (!typedColumns.has(key)) missing.push(`column:${key}`);
   for (const key of ["refresh_tokens.ip_address", "audit_logs.ip_address"])
     if (typedColumns.get(key)?.udt_name !== "inet") missing.push(`inet:${key}`);
   for (const key of [

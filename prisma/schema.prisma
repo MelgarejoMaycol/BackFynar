@@ -482,6 +482,82 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
+model EmailVerificationToken {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  tokenHash        String    @unique @map("token_hash")
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt       DateTime? @map("consumed_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  requestIpAddress String?   @map("request_ip_address") @db.Inet
+  userAgent        String?   @map("user_agent")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, revokedAt, consumedAt], map: "idx_email_verification_user_active")
+  @@index([expiresAt], map: "idx_email_verification_expires")
+  @@map("email_verification_tokens")
+}
+
+model PendingRegistration {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                 String    @unique @db.Citext
+  passwordHash          String    @map("password_hash")
+  firstName             String    @map("first_name") @db.VarChar(80)
+  lastName              String?   @map("last_name") @db.VarChar(80)
+  termsAcceptedAt       DateTime  @map("terms_accepted_at") @db.Timestamptz(6)
+  privacyAcceptedAt     DateTime  @map("privacy_accepted_at") @db.Timestamptz(6)
+  legalVersion          String    @map("legal_version") @db.VarChar(40)
+  verificationTokenHash String    @unique @map("verification_token_hash")
+  expiresAt             DateTime  @map("expires_at") @db.Timestamptz(6)
+  emailSentAt           DateTime? @map("email_sent_at") @db.Timestamptz(6)
+  consumedAt            DateTime? @map("consumed_at") @db.Timestamptz(6)
+  revokedAt             DateTime? @map("revoked_at") @db.Timestamptz(6)
+  requestIpAddress      String?   @map("request_ip_address") @db.Inet
+  userAgent             String?   @map("user_agent")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([expiresAt], map: "idx_pending_registrations_expires")
+  @@map("pending_registrations")
+}
+
+model EmailChangeRequest {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  newEmail         String    @map("new_email") @db.Citext
+  tokenHash        String    @unique @map("token_hash")
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  emailSentAt      DateTime? @map("email_sent_at") @db.Timestamptz(6)
+  consumedAt       DateTime? @map("consumed_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  requestIpAddress String?   @map("request_ip_address") @db.Inet
+  userAgent        String?   @map("user_agent")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, revokedAt, consumedAt], map: "idx_email_change_user_active")
+  @@index([expiresAt], map: "idx_email_change_expires")
+  @@map("email_change_requests")
+}
+
+model GoogleOAuthFlow {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  stateHash        String    @unique @map("state_hash")
+  pendingTokenHash String?   @unique @map("pending_token_hash")
+  providerSubject  String?   @map("provider_subject") @db.VarChar(255)
+  providerEmail    String?   @map("provider_email") @db.Citext
+  firstName        String?   @map("first_name") @db.VarChar(80)
+  lastName         String?   @map("last_name") @db.VarChar(80)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  stateConsumedAt  DateTime? @map("state_consumed_at") @db.Timestamptz(6)
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([expiresAt], map: "idx_google_oauth_flows_expires")
+  @@map("google_oauth_flows")
+}
+
 model RolePermission {
   roleId       String     @map("role_id") @db.Uuid
   permissionId String     @map("permission_id") @db.Uuid
@@ -611,7 +687,7 @@ model UserPreference {
   currency           String     @default("COP") @db.Char(3)
   timezone           String     @default("America/Bogota") @db.VarChar(60)
   dateFormat         String     @default("DD/MM/YYYY") @map("date_format") @db.VarChar(20)
-  theme              String     @default("SYSTEM") @db.VarChar(20)
+  theme              String     @default("LIGHT") @db.VarChar(20)
   startScreen        String     @default("DASHBOARD") @map("start_screen") @db.VarChar(50)
   dashboardLayout    Json       @default("{}") @map("dashboard_layout")
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -632,6 +708,9 @@ model User {
   phone                                            String?                 @db.VarChar(30)
   avatarUrl                                        String?                 @map("avatar_url")
   isEmailVerified                                  Boolean                 @default(false) @map("is_email_verified")
+  termsAcceptedAt                                  DateTime?               @map("terms_accepted_at") @db.Timestamptz(6)
+  privacyAcceptedAt                                DateTime?               @map("privacy_accepted_at") @db.Timestamptz(6)
+  legalVersion                                     String?                 @map("legal_version") @db.VarChar(40)
   isActive                                         Boolean                 @default(true) @map("is_active")
   lastLoginAt                                      DateTime?               @map("last_login_at") @db.Timestamptz(6)
   createdAt                                        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -643,6 +722,8 @@ model User {
   financialSimulations                             FinancialSimulation[]
   notifications                                    Notification[]
   passwordResetTokens                              PasswordResetToken[]
+  emailVerificationTokens                          EmailVerificationToken[]
+  emailChangeRequests                              EmailChangeRequest[]
   refreshTokens                                    RefreshToken[]
   transactionAttachments                           TransactionAttachment[]
   transactions                                     Transaction[]
