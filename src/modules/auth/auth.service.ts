@@ -130,11 +130,11 @@ export class AuthService {
           pendingRegistrationId: pending.id,
         });
         await this.database.pendingRegistration.delete({ where: { id: pending.id } }).catch(() => undefined);
-        throw new AppError("El proveedor de correo rechazÃ³ el envÃ­o", {
+        throw new AppError("El proveedor de correo rechazó el envío", {
           status: 503,
           code: "EMAIL_PROVIDER_ERROR",
           safeToExpose: true,
-          publicMessage: "No pudimos enviar el correo. IntÃ©ntalo nuevamente.",
+          publicMessage: "No pudimos enviar el correo. Inténtalo nuevamente.",
         });
       }
     return { user: { email: pending.email, firstName: pending.firstName } };
@@ -427,7 +427,7 @@ export class AuthService {
         await this.database.pendingRegistration.update({ where: { id: updated.id }, data: { emailSentAt: new Date() } });
       } catch (error: unknown) {
         await this.database.pendingRegistration.update({ where: { id: updated.id }, data: { revokedAt: new Date() } }).catch(() => undefined);
-        logger.error("Fallo el reenvÃ­o de registro pendiente", { errorName: error instanceof Error ? error.name : "Unknown", pendingRegistrationId: updated.id });
+        logger.error("Falló el reenvío de registro pendiente", { errorName: error instanceof Error ? error.name : "Unknown", pendingRegistrationId: updated.id });
       }
       return;
     }
@@ -480,13 +480,13 @@ export class AuthService {
         const now = new Date();
         const current = await tx.pendingRegistration.findUnique({ where: { id: pending.id } });
         if (!current || current.consumedAt || current.revokedAt)
-          throw new AppError("Token utilizado", { status: 409, code: "VERIFICATION_TOKEN_USED", safeToExpose: true, publicMessage: "Este enlace de verificaciÃ³n ya fue utilizado" });
+          throw new AppError("Token utilizado", { status: 409, code: "VERIFICATION_TOKEN_USED", safeToExpose: true, publicMessage: "Este enlace de verificación ya fue utilizado" });
         if (current.expiresAt <= now)
-          throw new AppError("Token expirado", { status: 410, code: "VERIFICATION_TOKEN_EXPIRED", safeToExpose: true, publicMessage: "El enlace de verificaciÃ³n ha expirado" });
+          throw new AppError("Token expirado", { status: 410, code: "VERIFICATION_TOKEN_EXPIRED", safeToExpose: true, publicMessage: "El enlace de verificación ha expirado" });
         if (await tx.user.findUnique({ where: { email: current.email }, select: { id: true } }))
           throw new ConflictError("Email duplicado", "Ya existe una cuenta con este correo");
         const owner = await tx.role.findUnique({ where: { code: "OWNER" }, select: { id: true } });
-        if (!owner) throw new AppError("El rol OWNER no estÃ¡ configurado");
+        if (!owner) throw new AppError("El rol OWNER no está configurado");
         const user = await tx.user.create({ data: {
           email: current.email, passwordHash: current.passwordHash, firstName: current.firstName,
           lastName: current.lastName, isEmailVerified: true, termsAcceptedAt: current.termsAcceptedAt,
@@ -609,9 +609,9 @@ export class AuthService {
   async requestEmailChange(userId: string, newEmail: string, currentPassword: string, metadata: SessionMetadata) {
     const user = await this.database.user.findUnique({ where: { id: userId }, include: { authIdentities: { where: { provider: "LOCAL" } } } });
     if (!user || !user.passwordHash || user.authIdentities.length === 0 || !(await this.passwords.verify(user.passwordHash, currentPassword)))
-      throw new UnauthorizedError("ContraseÃ±a incorrecta", "La contraseÃ±a actual no es correcta");
+      throw new UnauthorizedError("Contraseña incorrecta", "La contraseña actual no es correcta");
     if (user.email === newEmail) throw new AppError("Correo sin cambios", { status: 400, code: "EMAIL_UNCHANGED", safeToExpose: true, publicMessage: "Ingresa un correo diferente" });
-    if (await this.database.user.findUnique({ where: { email: newEmail }, select: { id: true } })) throw new ConflictError("Correo ocupado", "Este correo no estÃ¡ disponible");
+    if (await this.database.user.findUnique({ where: { email: newEmail }, select: { id: true } })) throw new ConflictError("Correo ocupado", "Este correo no está disponible");
     const rawToken = createOpaqueToken();
     const record = await this.database.$transaction(async (tx) => {
       await tx.emailChangeRequest.updateMany({ where: { userId, consumedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
@@ -623,7 +623,7 @@ export class AuthService {
       await this.database.emailChangeRequest.update({ where: { id: record.id }, data: { emailSentAt: new Date() } });
     } catch {
       await this.database.emailChangeRequest.update({ where: { id: record.id }, data: { revokedAt: new Date() } }).catch(() => undefined);
-      throw new AppError("Fallo proveedor de correo", { status: 503, code: "EMAIL_PROVIDER_ERROR", safeToExpose: true, publicMessage: "No pudimos enviar el correo. IntÃ©ntalo nuevamente." });
+      throw new AppError("Fallo proveedor de correo", { status: 503, code: "EMAIL_PROVIDER_ERROR", safeToExpose: true, publicMessage: "No pudimos enviar el correo. Inténtalo nuevamente." });
     }
     return { newEmail, expiresAt: record.expiresAt };
   }
@@ -632,10 +632,10 @@ export class AuthService {
     const tokenHash = hashOpaqueToken(rawToken);
     await withTransactionRetry(() => this.database.$transaction(async (tx) => {
       const request = await tx.emailChangeRequest.findUnique({ where: { tokenHash } }); const now = new Date();
-      if (!request) throw new AppError("Token invÃ¡lido", { status: 400, code: "EMAIL_CHANGE_TOKEN_INVALID", safeToExpose: true });
+      if (!request) throw new AppError("Token inválido", { status: 400, code: "EMAIL_CHANGE_TOKEN_INVALID", safeToExpose: true });
       if (request.consumedAt || request.revokedAt) throw new AppError("Token utilizado", { status: 409, code: "EMAIL_CHANGE_TOKEN_USED", safeToExpose: true });
       if (request.expiresAt <= now) throw new AppError("Token expirado", { status: 410, code: "EMAIL_CHANGE_TOKEN_EXPIRED", safeToExpose: true });
-      if (await tx.user.findUnique({ where: { email: request.newEmail }, select: { id: true } })) throw new ConflictError("Correo ocupado", "Este correo ya no estÃ¡ disponible");
+      if (await tx.user.findUnique({ where: { email: request.newEmail }, select: { id: true } })) throw new ConflictError("Correo ocupado", "Este correo ya no está disponible");
       await tx.user.update({ where: { id: request.userId }, data: { email: request.newEmail, isEmailVerified: true, updatedAt: now } });
       await tx.authIdentity.updateMany({ where: { userId: request.userId, provider: "LOCAL" }, data: { providerSubject: request.newEmail, providerEmail: request.newEmail } });
       await tx.emailChangeRequest.update({ where: { id: request.id }, data: { consumedAt: now } });

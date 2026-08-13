@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("GoogleOAuthService", () => {
-  it("devuelve un error controlado cuando Google no estÃ¡ configurado", async () => {
+  it("devuelve un error controlado cuando Google no está configurado", async () => {
     env.GOOGLE_CLIENT_ID = undefined;
     env.GOOGLE_CLIENT_SECRET = undefined;
     env.GOOGLE_CALLBACK_URL = undefined;
@@ -28,7 +28,7 @@ describe("GoogleOAuthService", () => {
     });
   });
 
-  it("genera state aleatorio y una URL OAuth con scopes mÃ­nimos", async () => {
+  it("genera state aleatorio y una URL OAuth con scopes mínimos", async () => {
     env.GOOGLE_CLIENT_ID = "client-id";
     env.GOOGLE_CLIENT_SECRET = "client-secret";
     env.GOOGLE_CALLBACK_URL = "http://localhost:3000/api/v1/auth/google/callback";

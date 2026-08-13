@@ -1,0 +1,11 @@
+import { Router } from "express";
+import { requirePermission } from "../workspaces/workspace-context.js";
+import * as c from "./cards.controller.js";
+const r = Router({ mergeParams: true });
+r.get("/", requirePermission("debts.read"), c.list);
+r.get("/:cardId/purchases", requirePermission("debts.read"), c.purchases);
+r.post("/:cardId/purchases", requirePermission("debts.write"), c.purchase);
+r.get("/:cardId/statements", requirePermission("debts.read"), c.statements);
+r.post("/:cardId/statements", requirePermission("debts.write"), c.statement);
+r.post("/:cardId/statements/:statementId/payments", requirePermission("debts.write"), c.pay);
+export default r;

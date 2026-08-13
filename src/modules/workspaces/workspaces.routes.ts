@@ -8,6 +8,10 @@ import transactionsRouter from "../transactions/transactions.routes.js";
 import dashboardRouter from "../dashboard/dashboard.routes.js";
 import budgetsRouter from "../budgets/budgets.routes.js";
 import reportsRouter from "../reports/reports.routes.js";
+import debtsRouter from "../debts/debts.routes.js";
+import obligationsRouter from "../obligations/obligations.routes.js";
+import cardsRouter from "../cards/cards.routes.js";
+import liabilitiesRouter from "../liabilities/liabilities.routes.js";
 
 const router = Router();
 router.use(authenticate);
@@ -18,6 +22,10 @@ router.use("/:workspaceId/transactions", resolveWorkspaceContext, transactionsRo
 router.use("/:workspaceId/dashboard", resolveWorkspaceContext, dashboardRouter);
 router.use("/:workspaceId/budgets", resolveWorkspaceContext, budgetsRouter);
 router.use("/:workspaceId/reports", resolveWorkspaceContext, reportsRouter);
+router.use("/:workspaceId/debts", resolveWorkspaceContext, debtsRouter);
+router.use("/:workspaceId/obligations", resolveWorkspaceContext, obligationsRouter);
+router.use("/:workspaceId/cards", resolveWorkspaceContext, cardsRouter);
+router.use("/:workspaceId", resolveWorkspaceContext, liabilitiesRouter);
 router.get("/:workspaceId", resolveWorkspaceContext, controller.get);
 router.post("/:workspaceId/select", resolveWorkspaceContext, controller.select);
 export default router;

@@ -1,0 +1,17 @@
+import { Router } from "express";
+import { requirePermission } from "../workspaces/workspace-context.js";
+import * as c from "./debts.controller.js";
+const r = Router({ mergeParams: true });
+r.post("/estimate", requirePermission("debts.read"), c.estimate);
+r.post("/", requirePermission("debts.write"), c.create);
+r.get("/", requirePermission("debts.read"), c.list);
+r.get("/:debtId", requirePermission("debts.read"), c.get);
+r.patch("/:debtId", requirePermission("debts.write"), c.update);
+r.delete("/:debtId", requirePermission("debts.write"), c.archive);
+r.patch("/:debtId/installments/:installmentId", requirePermission("debts.write"), c.installment);
+r.post("/:debtId/installments/:installmentId/payments", requirePermission("debts.write"), c.pay);
+r.post("/:debtId/payments/:paymentId/reverse", requirePermission("debts.write"), c.reverse);
+r.post("/:debtId/prepayments/simulate", requirePermission("debts.write"), c.simulate);
+r.post("/:debtId/prepayments", requirePermission("debts.write"), c.applyPrepayment);
+r.post("/:debtId/reconciliations", requirePermission("debts.write"), c.reconcile);
+export default r;

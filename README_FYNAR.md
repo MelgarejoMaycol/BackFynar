@@ -2830,3 +2830,120 @@ Authorization: Bearer <access-token>
 La respuesta sigue `{ "success": true, "data": ... }`. Contratos inválidos responden `400`, permisos insuficientes `403` y filtros de cuenta o categoría no visibles `404`, sin exponer SQL, Prisma ni campos internos.
 
 Quedan aplazados `includeOther` para categorías, exportaciones y reportes programados. Como `account_balance_snapshots` no contiene historia, el flujo de caja no pretende ser saldo bancario o patrimonio histórico: representa exclusivamente ingresos, gastos y flujo neto del periodo. No se iniciaron deudas, metas, calendario, notificaciones, IA ni la Fase 9.
+
+# Fase 9A — Diseño definitivo y migración de base de datos
+
+**Estado: COMPLETADA.** Esta subfase modifica exclusivamente el modelo persistente y no incorpora endpoints, repositorios, servicios, cálculos, generación de cronogramas, pagos automáticos, recordatorios ni frontend.
+
+## Estado inicial
+
+Ya existían `debts`, `debt_installments`, `debt_payments`, `financial_accounts`, `transactions`, `financial_events` y `recurrence_rules`. La base ya representaba monto original y saldo, interés fijo/variable/sin interés, plazo, cuota estimada, cronogramas con componentes de capital/interés/seguro/comisiones, pagos vinculados uno a uno con el movimiento real y datos de tarjeta (`credit_limit`, `billing_day`, `payment_due_day`). También existían estados suficientes para deuda y cuota, precisión `DECIMAL`, unicidad de número de cuota por deuda y checks financieros básicos.
+
+Las carencias eran: la tasa `annual_interest_rate` no podía expresar con claridad tasas nominales o mensuales; faltaba próximo vencimiento; las relaciones deuda-cuenta, cuota-deuda y pago-transacción no impedían por FK mezclar workspaces; `financial_events` no podía apuntar a una cuota concreta; y no existía un contrato persistente para obligaciones recurrentes independiente de la regla temporal y de sus ocurrencias de calendario.
+
+## Créditos, cuotas y pagos
+
+- `debts.annual_interest_rate` se renombró sin pérdida de datos a `interest_rate`, amplió precisión a `DECIMAL(10,7)` y se complementó con `interest_rate_basis`: `EFFECTIVE_ANNUAL`, `NOMINAL_ANNUAL`, `EFFECTIVE_MONTHLY` o `NOMINAL_MONTHLY`. `interest_type` conserva la modalidad `FIXED`, `VARIABLE` o `NONE`.
+- `debts.next_due_date` permite consultar el próximo vencimiento sin sustituir el cronograma. `debt_type` añade `PURCHASE_FINANCING` e `INFORMAL_LOAN`; los demás tipos existentes se conservan.
+- `debt_installments` sigue siendo la fuente del cronograma y conserva la unicidad `(debt_id, installment_number)`. Se añadió `workspace_id`, backfilled desde la deuda, y un check impide que `paid_amount` supere `total_amount`.
+- `debt_payments` conserva `transaction_id` único: `transactions` registra la salida de dinero y el pago solo distribuye su efecto entre capital, interés, seguro, comisión y abono extraordinario. Se añadió `workspace_id`, backfilled desde la deuda.
+- Claves compuestas garantizan en PostgreSQL que deuda y cuenta pasiva, cuota y deuda, y pago con deuda/cuota/transacción pertenezcan al mismo workspace. La coherencia de importes entre el total del movimiento y el desglose seguirá siendo responsabilidad transaccional del servicio de Fase 9B, porque puede involucrar reglas de moneda, redondeo y pagos que cubran varias cuotas.
+
+## Obligaciones recurrentes
+
+Se creó únicamente `recurring_obligations`, porque una obligación es un contrato con nombre, monto esperado, moneda, estado, cuenta habitual, categoría y preferencia de recordatorio; no es solamente una regla temporal ni una ocurrencia del calendario. Sus estados son `ACTIVE`, `PAUSED`, `COMPLETED` y `CANCELLED`.
+
+Cada obligación posee una `recurrence_rule` reutilizando `frequency`, `interval_value`, inicio, fin y próxima ejecución; estos campos no se duplican. `financial_events` representará ocurrencias futuras y `transactions` continuará representando pagos reales. La cuenta y la regla quedan protegidas por FK compuesta de workspace. La categoría puede ser global (`workspace_id IS NULL`) o privada; por esa razón usa FK simple y la futura capa de servicio deberá aceptar solamente categorías globales o pertenecientes al workspace de la obligación.
+
+## Tarjetas, eventos y recurrencia
+
+No se creó una tabla de tarjetas ni de estados de cuenta. `financial_accounts` ya contiene naturaleza pasiva, cupo, saldo, día de corte y día límite, mientras `transactions` contiene compras y pagos. Estados de cuenta, compras a cuotas, periodos de facturación, pago mínimo y saldo al corte quedan documentados para una fase posterior, cuando exista una necesidad funcional concreta.
+
+`financial_events` añade relaciones opcionales a `debt_installments` y `recurring_obligations`, además de los tipos `DEBT_INSTALLMENT_DUE` y `RECURRING_OBLIGATION`. La relación de deuda, cuota, obligación y recurrencia está acotada al workspace. No se generan eventos automáticamente en 9A. `recurrence_rules` permanece como representación temporal reutilizable; los créditos amortizados no dependen de ella porque su calendario real vive en `debt_installments`.
+
+## Índices, checks y migración
+
+Se añadieron índices para deudas activas/próximo vencimiento, cuotas por workspace/estado/vencimiento, pagos por deuda y cuota, y obligaciones por workspace/estado. Los checks nuevos validan tasa no negativa, tasa cero para créditos sin interés, orden básico de fechas, pago de cuota no superior al total, monto esperado positivo y moneda ISO alfabética de tres letras. Los checks previos de importes, plazo, días de pago, corte y vencimiento continúan vigentes.
+
+La migración incremental es `20260812170000_phase9a_credit_obligations_schema`. Añade y backfillea columnas antes de marcarlas `NOT NULL`, renombra la tasa conservando sus valores, no elimina registros, no resetea la base y no modifica migraciones históricas.
+
+Las fases posteriores separan responsabilidades: 9B implementa exclusivamente matemática pura; 9C, estimación; 9D, CRUD; 9E, cronogramas; 9F, pagos; 9G, abonos; 9H, conciliación; 9I–9N, obligaciones, vencimientos, tarjetas, compras, extractos y resumen; y 9O, integración. Autorización `debts.read`/`debts.write`, coherencia contable, concurrencia y persistencia no pertenecen a 9B.
+
+# Fase 9B — Motor matemático de créditos
+
+**Estado: COMPLETADA.** El motor vive en `src/modules/debts/domain` y es una biblioteca de funciones puras. No importa Express, `PrismaClient`, repositorios, configuración, variables de entorno ni APIs; tampoco consulta o modifica la base de datos.
+
+## Fórmulas y precisión
+
+Los importes y tasas utilizan `Prisma.Decimal`. Para una tasa periódica `r`, principal `P` y `n` cuotas, la cuota fija es `P × r × (1+r)^n / ((1+r)^n - 1)`; con tasa cero es `P / n`. Cada periodo calcula interés como `saldo inicial × r`, capital como `cuota - interés` y saldo final como `saldo inicial - capital`.
+
+El cálculo algebraico conserva la precisión Decimal disponible. Los límites contractuales se redondean mediante `ROUND_HALF_UP`: dinero a dos decimales y tasas convertidas a doce decimales. El interés, capital, cuota y saldo se materializan a escala monetaria en cada fila, igual que las columnas `DECIMAL(18,2)` del cronograma. La última cuota no reutiliza ciegamente la cuota regular: suma el saldo restante y su interés redondeado, con lo cual absorbe el residuo y termina exactamente en cero sin saldos negativos artificiales.
+
+Las tasas se normalizan a efectiva mensual. Una efectiva anual usa `(1 + EA)^(1/12) - 1`; una nominal anual con capitalización mensual usa `NA/12`; la equivalente anual usa `(1 + EM)^12 - 1`. `NOMINAL_MONTHLY` representa la tasa periódica mensual suministrada y no inventa otra frecuencia de capitalización.
+
+## Calendario y validación
+
+Las fechas son días contractuales en UTC. Cada vencimiento se calcula desde la primera fecha, no desde la fecha anterior: se conserva el día original cuando existe y se usa el último día válido en meses cortos. Así, 31 de enero produce 28/29 de febrero, 31 de marzo y 30 de abril sin overflow ni dependencia del timezone del servidor.
+
+El motor rechaza principal, pago o plazo no positivos; tasas negativas; fechas inválidas; costos negativos; `NaN` e infinitos. Cuando la cuota no supera el interés del periodo lanza `CreditMathError` con `PAYMENT_TOO_LOW`. El cálculo iterativo de plazo tiene un límite explícito y devuelve `CALCULATION_NOT_POSSIBLE` si no converge dentro de él.
+
+La API incluye conversión de tasas, cuota fija, desglose de cuota, cronograma, saldo restante, capital e interés pagados, interés restante, costo total, cuotas restantes, número de periodos y fecha estimada de terminación. Seguros y cargos se reciben como importes fijos por periodo; no se calculan fórmulas bancarias de seguros.
+
+No se añadieron endpoints, persistencia, estimación de datos faltantes, resolución de tasa desconocida, pagos, abonos extraordinarios, obligaciones, tarjetas ni cambios Prisma. La resolución numérica de variables desconocidas y las reglas de aplicación de abonos permanecen aplazadas para fases posteriores.
+
+# Fase 9C — Estimador de créditos con información incompleta
+
+**Estado: COMPLETADA.** `estimateCredit(input)` es una función pura del dominio y no usa Express, `PrismaClient`, repositorios, configuración, red, servidor ni base de datos. Reutiliza las fórmulas, el calendario y el cronograma de 9B; una estimación nunca se persiste.
+
+## Reglas de inferencia y trazabilidad
+
+Cada salida contiene `value`, `source`, `quality` y `derivedFrom`. `source` diferencia `PROVIDED`, `CALCULATED`, `ESTIMATED` y `UNKNOWN`; el valor proporcionado nunca se sobrescribe. Las combinaciones soportadas son:
+
+- monto original + tasa + plazo: cuota calculada;
+- monto original + cuota + plazo: tasa periódica implícita estimada;
+- saldo actual + tasa + cuota: cuotas restantes estimadas, usando el saldo y no el monto inicial;
+- monto original + tasa + cuota: plazo total estimado;
+- plazo total + cuotas pagadas: cuotas restantes exactas;
+- primera fecha de pago + plazo total: fecha final;
+- monto + tasa + plazo + cuota: conserva la cuota informada y devuelve comparación absoluta y porcentual;
+- monto + tasa + plazo + primera fecha: cronograma estimado sin crear `debt_installments`.
+
+No se infieren tasa, cuota, plazo, fecha, seguro ni comisión cuando faltan las variables matemáticas necesarias. Tampoco se deduce el plazo solamente con fecha de desembolso y fecha final: sin primera fecha contractual y convención de vencimiento el resultado sería ambiguo. Esos campos se validan, pero quedan disponibles para reglas futuras. El proceso ejecuta una lista acotada de reglas una sola vez, por lo que no puede entrar en ciclos.
+
+## Calidad, supuestos e inconsistencias
+
+`EXACT` se usa para una fórmula determinista con entradas suministradas o para total menos pagadas. `HIGH_ESTIMATE` se usa al resolver tasa o plazo bajo cuota fija, tasa constante y ausencia de cargos no modelados. `LOW_ESTIMATE` se reserva para un conjunto de datos contradictorio; en ese caso no se genera cronograma. `INSUFFICIENT_DATA` indica que no existe un resultado defendible, incluida una cuota que no amortiza o una tasa no negativa sin solución. `MEDIUM_ESTIMATE` forma parte del contrato tipado para futuras reglas que requieran supuestos adicionales, pero 9C no degrada arbitrariamente ningún caso actual a esa categoría. La calidad global toma la peor incertidumbre relevante de los campos inferidos y de los problemas detectados.
+
+Los supuestos se exponen mediante `MONTHLY_PAYMENT_FREQUENCY`, `FIXED_PAYMENT_AMORTIZATION`, `CONSTANT_INTEREST_RATE` y `NO_UNMODELED_FEES_OR_INSURANCE`. No se soportan UVR, leasing, pagos globo, tasas escalonadas, periodos de gracia, cuotas estacionales ni otros sistemas de amortización.
+
+## Solver y tolerancias
+
+La tasa implícita se resuelve por bisección determinista solo en el dominio no negativo. La tolerancia de tasa predeterminada es `1e-12`, la monetaria es `0.01`, el máximo es 200 iteraciones y la cota superior explícita es una tasa periódica de `1000`. El intervalo superior crece de forma acotada hasta encerrar la solución. Una cuota igual a `principal / plazo` dentro de un centavo devuelve tasa cero; una cuota inferior no produce una tasa negativa inventada y se marca `RATE_NOT_SOLVABLE`.
+
+La comparación de cuotas centraliza una tolerancia igual al mayor valor entre `0.01` y `0.1%` de la cuota matemática. El inversor de plazo aplica esa misma tolerancia para evitar añadir una cuota por el mero redondeo contractual a centavos. Tasas y dinero continúan usando `Prisma.Decimal`; no se producen `NaN` ni infinitos.
+
+# Fases 9D–9O — Operaciones backend de pasivos
+
+El backend expone bajo `/api/v1/workspaces/:workspaceId` módulos protegidos por `debts.read` y `debts.write`. Todas las búsquedas financieras incluyen `workspaceId`, y pagos, reversión, abonos, compras y pagos de tarjeta usan transacciones `Serializable` con reintentos para `P2034`, `40001` y `40P01`.
+
+## Créditos, cronogramas y pagos
+
+El CRUD de `/debts` acepta información completa o parcial y conserva en `metadata.estimation` la calidad, problemas, supuestos y fuentes producidos por 9C. Cuando existen monto, tasa/plazo y primera fecha genera cuotas y eventos de vencimiento mediante 9B. Las cuotas pagadas o parciales son históricas y no pueden editarse; el recálculo reemplaza únicamente cuotas futuras.
+
+Un pago crea atómicamente `Transaction(DEBT_PAYMENT)`, `DebtPayment`, actualiza cuota, deuda, cuenta pagadora y cuenta pasiva. `idempotencyKey` evita doble envío. La reversión cancela la transacción y restaura los saldos y la cuota sin borrar `DebtPayment`. Los abonos admiten simulación y aplicación `REDUCE_TERM` o `REDUCE_PAYMENT`; la conciliación conserva saldo calculado/informado, diferencia, fuente, fecha y cambios opcionales de tasa/cuota en `debt_reconciliations`.
+
+## Obligaciones y próximos vencimientos
+
+`/obligations` administra contratos `FIXED` o `VARIABLE` ligados a `RecurrenceRule`. Cada `ObligationOccurrence` conserva su propio importe, vencimiento, pagado y estado. Pagar genera una sola `Transaction(EXPENSE)` y reduce la cuenta pagadora. `/upcoming-payments` combina cuotas, ocurrencias y extractos sin sumar monedas entre sí.
+
+## Tarjetas, compras y extractos
+
+Las tarjetas continúan siendo `FinancialAccount(CREDIT_CARD, LIABILITY)`. `/cards` calcula cupo usado, disponible y utilización con Decimal. Una compra genera exactamente una `Transaction(EXPENSE)`, aumenta el pasivo y crea `CardPurchase` con cuotas estimadas. Un extracto conserva periodo, saldo anterior, compras, intereses, cargos, saldo calculado/informado, mínimo, pagos y estado.
+
+El pago de tarjeta usa `Transaction(TRANSFER)`: disminuye la cuenta bancaria y el saldo pasivo de la tarjeta, pero no crea otro gasto. Admite pagos parciales y totales del extracto e idempotencia por referencia externa.
+
+## Resumen e integración
+
+`/debts-summary` devuelve deuda activa, compromisos del mes, próximo pago, vencido, capital/interés pagados, conteos y agregados de tarjetas. Los reportes existentes contabilizan la compra y el pago de obligación como gastos; excluyen `DEBT_PAYMENT` y transferencias de tarjeta para evitar doble contabilización. Las operaciones sensibles de deuda crean `AuditLog`; no se creó un outbox paralelo porque el proyecto no tenía productores operativos previos.
+
+La migración incremental `20260812193000_phase9d_9m_financial_operations` añade idempotencia/reversión, conciliaciones, ocurrencias, compras financiadas y extractos. No modifica migraciones históricas, no resetea ni borra datos.

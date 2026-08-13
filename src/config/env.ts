@@ -19,6 +19,7 @@ const schema = z.object({
   API_PREFIX: z.string().startsWith("/").default("/api/v1"),
   API_VERSION: z.string().default("1.0.0"),
   DATABASE_URL: z.string().min(1).optional(),
+  DATABASE_HEALTH_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
   ALLOW_DEGRADED_START: z
     .enum(["true", "false"])
     .default("false")

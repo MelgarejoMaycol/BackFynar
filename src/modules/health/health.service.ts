@@ -50,7 +50,7 @@ export async function checkDatabase(options: ReadinessDependencies = {}): Promis
   const databaseUrl = Object.hasOwn(options, "databaseUrl")
     ? options.databaseUrl
     : env.DATABASE_URL;
-  const timeoutMs = options.timeoutMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? env.DATABASE_HEALTH_TIMEOUT_MS;
   if (lifecycle.isShuttingDown())
     return { ready: false, status: "unavailable", reason: "APPLICATION_SHUTTING_DOWN" };
   if (!databaseUrl)

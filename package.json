@@ -16,6 +16,7 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "check": "npm run typecheck && npm run lint",
     "test": "vitest run --exclude tests/integration/** --exclude dist/** --exclude .clean-validation-*/**",
     "test:watch": "vitest --exclude tests/integration/** --exclude dist/** --exclude .clean-validation-*/**",
     "test:integration": "tsx scripts/run-integration-tests.ts",

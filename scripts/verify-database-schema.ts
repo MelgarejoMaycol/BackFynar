@@ -29,6 +29,7 @@ const expectedTables = [
   "pending_registrations",
   "permissions",
   "recurrence_rules",
+  "recurring_obligations",
   "refresh_tokens",
   "role_permissions",
   "roles",
@@ -54,8 +55,10 @@ const expectedEnums = [
   "insight_type",
   "installment_status",
   "interest_type",
+  "interest_rate_basis",
   "member_status",
   "notification_type",
+  "obligation_status",
   "provider_type",
   "recurrence_frequency",
   "transaction_status",
@@ -74,7 +77,11 @@ const expectedIndexes = [
   "idx_transactions_search",
   "idx_budgets_workspace_period",
   "idx_debts_workspace_status",
-  "idx_installments_due_status",
+  "idx_installments_workspace_status_due",
+  "idx_debt_payments_workspace_debt_paid",
+  "idx_debt_payments_workspace_installment",
+  "idx_debts_workspace_status_due",
+  "idx_obligations_workspace_status",
   "idx_events_workspace_start",
   "idx_goals_workspace_status",
   "idx_insights_workspace_created",
@@ -105,6 +112,7 @@ const expectedTriggers = [
   "trg_budgets_updated_at",
   "trg_debts_updated_at",
   "trg_installments_updated_at",
+  "trg_recurring_obligations_updated_at",
   "trg_goals_updated_at",
   "trg_events_updated_at",
   "trg_merchant_rules_updated_at",
@@ -120,6 +128,12 @@ const expectedChecks = [
   "budget_category_amount",
   "chk_budgets_currency_format",
   "financial_event_dates",
+  "debts_interest_rate_check",
+  "debts_interest_none_rate_check",
+  "debts_date_order_check",
+  "debt_installments_paid_not_over_total_check",
+  "recurring_obligations_expected_amount_check",
+  "recurring_obligations_currency_check",
   "forecast_date_range",
 ] as const;
 
@@ -188,6 +202,21 @@ async function main(): Promise<void> {
       missing.push("type:budgets.currency");
     if (budgetCurrency.is_nullable !== "NO") missing.push("not-null:budgets.currency");
   }
+  for (const key of [
+    "debts.interest_rate",
+    "debts.interest_rate_basis",
+    "debts.next_due_date",
+    "debt_installments.workspace_id",
+    "debt_payments.workspace_id",
+    "financial_events.related_debt_installment_id",
+    "financial_events.related_obligation_id",
+    "recurring_obligations.workspace_id",
+    "recurring_obligations.recurrence_rule_id",
+    "recurring_obligations.expected_amount",
+  ])
+    if (!typedColumns.has(key)) missing.push(`column:${key}`);
+  if (typedColumns.has("debts.annual_interest_rate"))
+    missing.push("legacy-column:debts.annual_interest_rate");
   for (const key of ["users.email", "auth_identities.provider_email"])
     if (typedColumns.get(key)?.udt_name !== "citext") missing.push(`citext:${key}`);
   for (const key of [
@@ -226,6 +255,7 @@ async function main(): Promise<void> {
     "transactions",
     "budgets",
     "debts",
+    "recurring_obligations",
     "savings_goals",
   ])
     if (!typedColumns.has(columnKey(table, "deleted_at"))) missing.push(`soft-delete:${table}`);
@@ -240,6 +270,7 @@ async function main(): Promise<void> {
     "budgets",
     "debts",
     "debt_installments",
+    "recurring_obligations",
     "savings_goals",
     "financial_events",
     "merchant_category_rules",
