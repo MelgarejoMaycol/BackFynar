@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { budgetUtcRange, projectionDays } from "../src/modules/budgets/budgets.dates.js";
 import { budgetProgress, budgetStatus } from "../src/modules/budgets/budgets.service.js";
+import { buildDashboardPeriod } from "../src/modules/dashboard/dashboard.period.js";
 import {
   budgetCurrencySchema,
   budgetMoneySchema,
@@ -137,5 +138,15 @@ describe("presupuestos", () => {
     expect(
       projectionDays("2026-08-01", "2026-08-10", "UTC", new Date("2026-08-11T12:00:00Z")),
     ).toMatchObject({ elapsed: 10, total: 10, phase: "AFTER" });
+  });
+  it("reutiliza Mi ciclo del Dashboard y genera 25 de julio a 24 de agosto", () => {
+    const range = buildDashboardPeriod(
+      { period: "MY_CYCLE", recentLimit: 1 },
+      "America/Bogota",
+      new Date("2026-08-18T17:00:00Z"),
+      25,
+    );
+    expect(range.start).toEqual(new Date("2026-07-25T05:00:00Z"));
+    expect(new Date(range.endExclusive.getTime() - 1)).toEqual(new Date("2026-08-25T04:59:59.999Z"));
   });
 });

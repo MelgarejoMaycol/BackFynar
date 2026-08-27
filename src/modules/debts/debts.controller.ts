@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { ZodType } from "zod";
+import type { ZodIssue, ZodType } from "zod";
 import { ValidationError } from "../../common/errors/app-error.js";
 import { debtsService } from "./debts.service.js";
 import {
@@ -16,14 +16,40 @@ import {
 } from "./debts.schemas.js";
 import { estimateCredit } from "./domain/credit-estimator.js";
 import type { CreditEstimationInput } from "./domain/credit-estimation.types.js";
+import { CreditMathError } from "./domain/credit-math.error.js";
+const validationDetails = (issues: ZodIssue[]) => ({
+  fields: Object.fromEntries(
+    issues.map((issue) => [issue.path.join(".") || "body", issue.message]),
+  ),
+  issues: issues.map((issue) => ({
+    path: issue.path.join(".") || "body",
+    code: issue.code,
+    reason: issue.message,
+  })),
+});
 const p = <T>(s: ZodType<T>, v: unknown) => {
   const r = s.safeParse(v);
-  if (!r.success) throw new ValidationError("Datos inválidos", r.error.issues);
+  if (!r.success)
+    throw new ValidationError("Revisa los datos del crédito", validationDetails(r.error.issues));
   return r.data;
 };
 const x =
   (h: (q: Request, r: Response) => Promise<void>) => (q: Request, r: Response, n: NextFunction) => {
-    void h(q, r).catch(n);
+    void h(q, r).catch((error: unknown) => {
+      if (error instanceof CreditMathError) {
+        const messages: Partial<Record<CreditMathError["code"], string>> = {
+          PAYMENT_TOO_LOW: "La próxima cuota no alcanza a cubrir los intereses del período",
+          INSUFFICIENT_DATA: "No hay información suficiente para estimar este dato",
+          INVALID_RATE: "La tasa de interés no es válida",
+          INVALID_TERM: "El número de cuotas no es válido",
+          INVALID_RELATIONSHIP: "Los datos informados no son compatibles entre sí",
+          RATE_NOT_SOLVABLE: "No hay información suficiente para estimar la tasa",
+        };
+        n(new ValidationError(messages[error.code] ?? "No fue posible calcular el crédito"));
+        return;
+      }
+      n(error);
+    });
   };
 const ids = (q: Request) => ({
   debtId: p(id, q.params.debtId),
@@ -53,6 +79,7 @@ export const estimate = x(async (q, r) => {
     ...(input.periodicRate ? { periodicRate: input.periodicRate } : {}),
     ...(input.interestRate ? { interestRate: input.interestRate } : {}),
     ...(input.interestRateBasis ? { interestRateBasis: input.interestRateBasis } : {}),
+    ...(input.paymentFrequency ? { paymentFrequency: input.paymentFrequency } : {}),
     ...(input.totalInstallments ? { totalInstallments: input.totalInstallments } : {}),
     ...(input.installmentsPaid !== undefined ? { installmentsPaid: input.installmentsPaid } : {}),
     ...(input.remainingInstallments !== undefined
@@ -105,8 +132,10 @@ export const update = x(async (q, r) => {
   });
 });
 export const archive = x(async (q, r) => {
-  await debtsService.archive(q.workspace!.workspaceId, q.auth!.userId, ids(q).debtId);
-  r.status(204).send();
+  r.json({
+    success: true,
+    data: await debtsService.archive(q.workspace!.workspaceId, q.auth!.userId, ids(q).debtId),
+  });
 });
 export const installment = x(async (q, r) => {
   const i = p(installmentUpdateSchema, q.body),

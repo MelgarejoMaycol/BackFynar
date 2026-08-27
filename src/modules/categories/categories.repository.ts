@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "../../database/prisma.js";
 import { withTransactionRetry } from "../../database/transaction-retry.js";
+import { recordDeletionAudit } from "../../common/audit/deletion-audit.js";
 import { categorySelect } from "./categories.mapper.js";
 import type { ListCategoriesInput } from "./categories.schemas.js";
 
@@ -92,6 +93,38 @@ export class CategoriesRepository {
           { workspaceId, isSystem: false },
         ],
       },
+    });
+  }
+
+  archive(workspaceId: string, userId: string, categoryId: string) {
+    return this.transaction(async (tx) => {
+      const current = await this.findVisible(workspaceId, categoryId, tx);
+      if (!current) return null;
+      const [transactions, splits, budgets, merchantRules, obligations, children] =
+        await Promise.all([
+          tx.transaction.count({ where: { workspaceId, categoryId } }),
+          tx.transactionSplit.count({ where: { categoryId, transactions: { workspaceId } } }),
+          tx.budgetCategory.count({ where: { categoryId, budgets: { workspaceId } } }),
+          tx.merchantCategoryRule.count({ where: { workspaceId, categoryId } }),
+          tx.recurringObligation.count({ where: { workspaceId, categoryId } }),
+          tx.category.count({ where: { parentId: categoryId } }),
+        ]);
+      const dependencies = { transactions, splits, budgets, merchantRules, obligations, children };
+      const archived = await tx.category.updateMany({
+        where: { id: categoryId, workspaceId, isSystem: false, deletedAt: null },
+        data: { isActive: false, deletedAt: new Date() },
+      });
+      if (archived.count !== 1) return null;
+      await recordDeletionAudit(tx, {
+        workspaceId,
+        userId,
+        entityType: "CATEGORY",
+        entityId: categoryId,
+        mode: "LOGICAL",
+        name: current.name,
+        dependencies,
+      });
+      return { current, mode: "LOGICAL" as const, dependencies };
     });
   }
 }

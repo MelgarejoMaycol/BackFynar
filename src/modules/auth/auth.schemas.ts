@@ -58,8 +58,10 @@ export const resendVerificationSchema = z
 export const googleLegalAcceptanceSchema = z
   .object({ acceptedTerms: z.literal(true), acceptedPrivacy: z.literal(true) })
   .strict();
-export const requestEmailChangeSchema = z.object({
-  newEmail: z.string().trim().toLowerCase().max(EMAIL_MAX_LENGTH).email(),
-  currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH),
-}).strict();
+export const requestEmailChangeSchema = z
+  .object({
+    newEmail: z.string().trim().toLowerCase().max(EMAIL_MAX_LENGTH).email(),
+    currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+  })
+  .strict();
 export const confirmEmailChangeSchema = z.object({ token: z.string().min(32).max(512) }).strict();

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import {
   CreditMathError,
+  addContractPeriods,
   addContractMonths,
   calculateEstimatedEndDate,
   calculateFixedPayment,
@@ -15,6 +16,7 @@ import {
   calculateTotalCost,
   convertInterestRate,
   generateAmortizationSchedule,
+  toEffectivePeriodic,
 } from "../src/modules/debts/domain/index.js";
 
 const d = (value: string | number) => new Prisma.Decimal(value);
@@ -147,14 +149,17 @@ describe("motor matemático de créditos", () => {
 
   it("rechaza una cuota que no cubre el interés", () => {
     expectCode(() => calculateNumberOfPeriods("1000", "0.1", "100"), "PAYMENT_TOO_LOW");
-    expectCode(() =>
-      generateAmortizationSchedule({
-        principal: 1000,
-        periodicRate: "0.1",
-        numberOfInstallments: 12,
-        paymentAmount: 100,
-        firstPaymentDate: iso("2026-01-01"),
-      }), "PAYMENT_TOO_LOW");
+    expectCode(
+      () =>
+        generateAmortizationSchedule({
+          principal: 1000,
+          periodicRate: "0.1",
+          numberOfInstallments: 12,
+          paymentAmount: 100,
+          firstPaymentDate: iso("2026-01-01"),
+        }),
+      "PAYMENT_TOO_LOW",
+    );
   });
 
   it("preserva el día contractual y limita al último día del mes", () => {
@@ -219,6 +224,34 @@ describe("motor matemático de créditos", () => {
   it("calcula número de periodos sin depender de base de datos", () => {
     expect(calculateNumberOfPeriods(1200, 0, 100)).toBe(12);
     expect(calculateNumberOfPeriods(1000, "0.01", 100)).toBe(11);
+  });
+
+  it.each([
+    ["WEEKLY", "2026-01-22T00:00:00.000Z"],
+    ["MONTHLY", "2026-02-15T00:00:00.000Z"],
+    ["BIMONTHLY", "2026-03-15T00:00:00.000Z"],
+    ["SEMIANNUAL", "2026-07-15T00:00:00.000Z"],
+  ] as const)("genera vencimientos reales para frecuencia %s", (frequency, expected) => {
+    expect(addContractPeriods(iso("2026-01-15"), 1, frequency).toISOString()).toBe(expected);
+    const schedule = generateAmortizationSchedule({
+      principal: 1000,
+      periodicRate: 0,
+      numberOfInstallments: 2,
+      firstPaymentDate: iso("2026-01-15"),
+      paymentFrequency: frequency,
+    });
+    expect(schedule[1]!.dueDate.toISOString()).toBe(expected);
+  });
+
+  it("convierte la tasa mensual a la periodicidad", () => {
+    expect(toEffectivePeriodic("0.02", "EFFECTIVE_MONTHLY", "MONTHLY").toFixed(2)).toBe("0.02");
+    expect(toEffectivePeriodic("0.02", "EFFECTIVE_MONTHLY", "BIMONTHLY").toFixed(4)).toBe("0.0404");
+    expect(toEffectivePeriodic("0.02", "EFFECTIVE_MONTHLY", "WEEKLY").toFixed(12)).toBe(
+      "0.004580294698",
+    );
+    expect(toEffectivePeriodic("0.02", "EFFECTIVE_MONTHLY", "SEMIANNUAL").toFixed(12)).toBe(
+      "0.126162419264",
+    );
   });
 
   it.each([

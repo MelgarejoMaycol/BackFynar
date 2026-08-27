@@ -3,6 +3,7 @@ import type {
   AmortizationInstallment,
   DecimalInput,
   InterestRateBasis,
+  PaymentFrequency,
 } from "./credit-math.types.js";
 
 export type EstimationSource = "PROVIDED" | "CALCULATED" | "ESTIMATED" | "UNKNOWN";
@@ -41,6 +42,7 @@ export interface CreditEstimationInput {
   periodicRate?: DecimalInput;
   interestRate?: DecimalInput;
   interestRateBasis?: InterestRateBasis;
+  paymentFrequency?: PaymentFrequency;
   totalInstallments?: number;
   installmentsPaid?: number;
   remainingInstallments?: number;

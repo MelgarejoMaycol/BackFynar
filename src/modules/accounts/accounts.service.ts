@@ -114,12 +114,6 @@ export class AccountsService {
             ? { institutionName: input.institutionName }
             : {}),
           ...(input.currency !== undefined ? { currency: input.currency } : {}),
-          ...(input.openingBalance !== undefined
-            ? {
-                openingBalance: money(input.openingBalance),
-                currentBalance: money(input.openingBalance),
-              }
-            : {}),
           ...(input.creditLimit !== undefined
             ? { creditLimit: input.creditLimit === null ? null : money(input.creditLimit) }
             : {}),
@@ -158,9 +152,10 @@ export class AccountsService {
     if (!updated) throw accountNotFound();
     return toPublicAccount(updated);
   }
-  async remove(workspaceId: string, accountId: string): Promise<void> {
-    if ((await this.repository.softDelete(workspaceId, accountId)) === "missing")
-      throw accountNotFound();
+  async remove(workspaceId: string, userId: string, accountId: string) {
+    const result = await this.repository.removeSafely(workspaceId, userId, accountId);
+    if (!result) throw accountNotFound();
+    return result;
   }
 }
 

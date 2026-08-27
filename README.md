@@ -229,6 +229,39 @@ La API utiliza el prefijo:
 /api/v1
 ```
 
+Las pruebas de integración requieren una base PostgreSQL aislada cuyo nombre contenga
+`test` o `testing`. No utilices la URL de producción. En PowerShell:
+
+```powershell
+$env:NODE_ENV='test'
+$env:ALLOW_DATABASE_TESTS='true'
+$env:DATABASE_URL='postgresql://usuario:clave@host/fynar_test'
+npx.cmd prisma migrate deploy
+npm.cmd run test:integration
+```
+
+El backfill puede verificarse en esa misma base con:
+
+```powershell
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f tests/integration/financial-event-backfill.sql
+```
+
+El runner rechaza cualquier otra base. La excepción para la base compartida `neondb`
+requiere además `ALLOW_SHARED_DEV_DATABASE_TESTS=true` y no debe habilitarse para
+certificación ni producción.
+
+### Identidad de eventos financieros
+
+Las relaciones de eventos con cuotas, ocurrencias y extractos son uno a uno mediante
+claves únicas compuestas que incluyen `workspace_id`; no se mantienen índices únicos
+adicionales sobre el identificador aislado porque serían redundantes. Las claves
+foráneas conservan `ON DELETE CASCADE`: ocurrencias y extractos no tienen borrado físico
+en los flujos productivos, y las cuotas solo se eliminan al reemplazar proyecciones
+futuras sin historial de pagos. En ese último caso también debe desaparecer el evento
+obsoleto del cronograma reemplazado.
+
+Consulta [README_FYNAR.md](./README_FYNAR.md) para la documentación técnica y funcional ampliada.
+
 ## Health check
 
 El servicio expone un endpoint de disponibilidad utilizado también por Render:

@@ -77,6 +77,7 @@ export function buildDashboardPeriod(
   query: DashboardQuery,
   timezone: string,
   now = new Date(),
+  financialCycleStartDay?: number | null,
 ): DashboardPeriod {
   formatter(timezone).format(now);
   const localNow = partsAt(now, timezone);
@@ -88,6 +89,16 @@ export function buildDashboardPeriod(
     startLocal = monthStart(today, 0);
     endLocal = monthStart(today, 1);
     previousStartLocal = monthStart(today, -1);
+  } else if (query.period === "MY_CYCLE") {
+    if (!financialCycleStartDay || financialCycleStartDay < 1 || financialCycleStartDay > 28)
+      throw new Error("FINANCIAL_CYCLE_NOT_CONFIGURED");
+    const startsThisMonth = { ...today, day: financialCycleStartDay };
+    startLocal =
+      today.day >= financialCycleStartDay
+        ? startsThisMonth
+        : { ...monthStart(today, -1), day: financialCycleStartDay };
+    endLocal = addDays({ ...monthStart(startLocal, 1), day: financialCycleStartDay }, 0);
+    previousStartLocal = { ...monthStart(startLocal, -1), day: financialCycleStartDay };
   } else if (query.period === "PREVIOUS_MONTH") {
     startLocal = monthStart(today, -1);
     endLocal = monthStart(today, 0);

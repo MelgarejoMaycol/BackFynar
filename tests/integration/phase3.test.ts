@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import app from "../../src/app.js";
 import { prisma } from "../../src/database/prisma.js";
+import { registerVerified } from "./helpers/register-verified.js";
 
 const suffix = randomUUID().replaceAll("-", "");
 const password = "Phase three secure password 1!";
@@ -34,24 +35,18 @@ describe.sequential("Fase 3 cuentas reales", () => {
   });
   it("prepara dos usuarios y workspaces", async () => {
     for (const actor of actors) {
-      const r = await request(app)
-        .post("/api/v1/auth/register")
-        .send({ email: actor.email, password, firstName: "Phase3", acceptedTerms: true });
-      expect(r.status).toBe(201);
-      actor.id = r.body.data.user.id;
-      await prisma.user.update({ where: { id: actor.id }, data: { isEmailVerified: true } });
-      const login = await request(app).post("/api/v1/auth/login").send({ email: actor.email, password });
+      const { user, workspace, login } = await registerVerified({
+        email: actor.email,
+        password,
+        firstName: "Phase3",
+      });
+      actor.id = user.id;
       actor.access = login.body.data.tokens.accessToken;
       actor.refreshCookie = refreshCookieFrom(login);
-      actor.workspaceId = (
-        await prisma.workspace.findFirstOrThrow({
-          where: { ownerUserId: actor.id },
-          select: { id: true },
-        })
-      ).id;
+      actor.workspaceId = workspace.id;
     }
   }, 60_000);
-  it("OWNER crea assets y liabilities con precision exacta", async () => {
+  it("OWNER crea cuentas y las tarjetas usan su modulo especializado", async () => {
     const a = await request(app).post(base(actors[0]!)).set(auth(actors[0]!.access)).send({
       name: "Ahorros",
       type: "SAVINGS",
@@ -65,20 +60,28 @@ describe.sequential("Fase 3 cuentas reales", () => {
       openingBalance: "1500000.25",
       currentBalance: "1500000.25",
     });
-    const b = await request(app).post(base(actors[1]!)).set(auth(actors[1]!.access)).send({
-      name: "Tarjeta",
-      type: "CREDIT_CARD",
-      nature: "LIABILITY",
-      currency: "COP",
-      openingBalance: "-250.10",
-      creditLimit: "5000000.00",
-      billingDay: 10,
-      paymentDueDay: 28,
-    });
+    const rejectedCard = await request(app)
+      .post(base(actors[1]!))
+      .set(auth(actors[1]!.access))
+      .send({
+        name: "Tarjeta incorrecta",
+        type: "CREDIT_CARD",
+        nature: "LIABILITY",
+        currency: "COP",
+        openingBalance: "0.00",
+        creditLimit: "5000000.00",
+        billingDay: 10,
+        paymentDueDay: 28,
+      });
+    expect(rejectedCard.status).toBe(400);
+    const b = await request(app)
+      .post(`/api/v1/workspaces/${actors[1]!.workspaceId}/cards`)
+      .set(auth(actors[1]!.access))
+      .send({ name: "Tarjeta", currency: "COP", creditLimit: "5000000.00", usedCredit: "250.10" });
     expect(b.status).toBe(201);
     accountB = b.body.data.id;
   }, 30_000);
-  it("lista, detalla y actualiza sin aceptar currentBalance", async () => {
+  it("lista, detalla y actualiza sin aceptar saldos calculados", async () => {
     const list = await request(app).get(base(actors[0]!)).set(auth(actors[0]!.access));
     expect(list.status).toBe(200);
     expect(list.body.data.map((x: { id: string }) => x.id)).toEqual([accountA]);
@@ -89,14 +92,19 @@ describe.sequential("Fase 3 cuentas reales", () => {
           .set(auth(actors[0]!.access))
       ).status,
     ).toBe(200);
-    const update = await request(app)
+    const rejectedBalance = await request(app)
       .patch(`${base(actors[0]!)}/${accountA}`)
       .set(auth(actors[0]!.access))
       .send({ name: "Ahorros principal", openingBalance: "2000000.10" });
+    expect(rejectedBalance.status).toBe(400);
+    const update = await request(app)
+      .patch(`${base(actors[0]!)}/${accountA}`)
+      .set(auth(actors[0]!.access))
+      .send({ name: "Ahorros principal" });
     expect(update.status).toBe(200);
     expect(update.body.data).toMatchObject({
-      openingBalance: "2000000.10",
-      currentBalance: "2000000.10",
+      openingBalance: "1500000.25",
+      currentBalance: "1500000.25",
     });
     expect(
       (
@@ -106,6 +114,12 @@ describe.sequential("Fase 3 cuentas reales", () => {
           .send({ currentBalance: "9.00" })
       ).status,
     ).toBe(400);
+    const withCard = await request(app).get(base(actors[1]!)).set(auth(actors[1]!.access));
+    const withoutCard = await request(app)
+      .get(`${base(actors[1]!)}?excludeCreditCards=true`)
+      .set(auth(actors[1]!.access));
+    expect(withCard.body.data.map((item: { id: string }) => item.id)).toContain(accountB);
+    expect(withoutCard.body.data.map((item: { id: string }) => item.id)).not.toContain(accountB);
   }, 30_000);
   it("favorito, archivo, filtro y restauracion son coherentes", async () => {
     expect(
@@ -240,7 +254,7 @@ describe.sequential("Fase 3 cuentas reales", () => {
     });
     expect(after).toEqual(before);
   }, 30_000);
-  it("reserva el nombre de una cuenta eliminada logicamente", async () => {
+  it("permite reutilizar el nombre tras una eliminación física segura", async () => {
     const accountPath = base(actors[0]!);
     const payload = {
       name: "Nombre eliminado reservado",
@@ -257,31 +271,29 @@ describe.sequential("Fase 3 cuentas reales", () => {
           .delete(`${accountPath}/${created.body.data.id}`)
           .set(auth(actors[0]!.access))
       ).status,
-    ).toBe(204);
+    ).toBe(200);
 
     const duplicate = await request(app)
       .post(accountPath)
       .set(auth(actors[0]!.access))
       .send(payload);
-    expect(duplicate.status).toBe(409);
-    expect(duplicate.body.error.message).toContain("Restaure la cuenta anterior");
+    expect(duplicate.status).toBe(201);
 
     const stored = await prisma.financialAccount.findMany({
       where: { workspaceId: actors[0]!.workspaceId, name: payload.name },
       select: { id: true, deletedAt: true },
     });
     expect(stored).toHaveLength(1);
-    expect(stored[0]).toMatchObject({ id: created.body.data.id });
-    expect(stored[0]!.deletedAt).toBeInstanceOf(Date);
+    expect(stored[0]).toMatchObject({ id: duplicate.body.data.id, deletedAt: null });
   }, 30_000);
-  it("elimina logicamente, conserva fila y excluye consultas", async () => {
+  it("elimina físicamente una cuenta sin historial y la excluye de consultas", async () => {
     expect(
       (
         await request(app)
           .delete(`${base(actors[0]!)}/${accountA}`)
           .set(auth(actors[0]!.access))
       ).status,
-    ).toBe(204);
+    ).toBe(200);
     expect(
       (
         await request(app)
@@ -289,16 +301,14 @@ describe.sequential("Fase 3 cuentas reales", () => {
           .set(auth(actors[0]!.access))
       ).status,
     ).toBe(404);
-    const stored = await prisma.financialAccount.findUniqueOrThrow({ where: { id: accountA } });
-    expect(stored.deletedAt).toBeInstanceOf(Date);
-    expect(stored.isActive).toBe(false);
+    expect(await prisma.financialAccount.findUnique({ where: { id: accountA } })).toBeNull();
     expect(
       (
         await request(app)
           .delete(`${base(actors[0]!)}/${accountA}`)
           .set(auth(actors[0]!.access))
       ).status,
-    ).toBe(204);
+    ).toBe(404);
   }, 30_000);
   it("valida UUID, propiedades y sesion revocada", async () => {
     expect(

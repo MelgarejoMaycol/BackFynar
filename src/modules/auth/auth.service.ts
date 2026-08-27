@@ -73,7 +73,9 @@ export class AuthService {
   async register(input: RegisterInput, metadata: SessionMetadata) {
     const passwordHash = await this.passwords.hash(input.password);
     const verificationToken = createOpaqueToken();
-    if (await this.database.user.findUnique({ where: { email: input.email }, select: { id: true } }))
+    if (
+      await this.database.user.findUnique({ where: { email: input.email }, select: { id: true } })
+    )
       throw new ConflictError("Email duplicado", "No fue posible completar el registro");
     const now = new Date();
     const pending = await this.database.pendingRegistration.upsert({
@@ -106,37 +108,39 @@ export class AuthService {
         updatedAt: now,
       },
     });
-      const url = new URL(env.EMAIL_VERIFICATION_PATH, env.APP_WEB_URL);
-      url.searchParams.set("token", verificationToken);
-      try {
-        await this.emails.sendVerification({
-          recipient: pending.email,
-          firstName: pending.firstName,
-          verificationUrl: url.toString(),
-          expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
-        });
-        await this.database.pendingRegistration.update({
-          where: { id: pending.id },
-          data: { emailSentAt: new Date() },
-        });
-      } catch (error: unknown) {
-        logger.error("Fallo el envio del correo de verificacion", {
-          errorName: error instanceof Error ? error.name : "Unknown",
-          providerStatus: error instanceof EmailProviderError ? error.status : undefined,
-          providerCode: error instanceof EmailProviderError ? error.providerCode : undefined,
-          providerMessage: error instanceof EmailProviderError ? error.providerMessage : undefined,
-          emailKind: "registration-verification",
-          recipientDomain: pending.email.split("@")[1],
-          pendingRegistrationId: pending.id,
-        });
-        await this.database.pendingRegistration.delete({ where: { id: pending.id } }).catch(() => undefined);
-        throw new AppError("El proveedor de correo rechazó el envío", {
-          status: 503,
-          code: "EMAIL_PROVIDER_ERROR",
-          safeToExpose: true,
-          publicMessage: "No pudimos enviar el correo. Inténtalo nuevamente.",
-        });
-      }
+    const url = new URL(env.EMAIL_VERIFICATION_PATH, env.APP_WEB_URL);
+    url.searchParams.set("token", verificationToken);
+    try {
+      await this.emails.sendVerification({
+        recipient: pending.email,
+        firstName: pending.firstName,
+        verificationUrl: url.toString(),
+        expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+      });
+      await this.database.pendingRegistration.update({
+        where: { id: pending.id },
+        data: { emailSentAt: new Date() },
+      });
+    } catch (error: unknown) {
+      logger.error("Fallo el envio del correo de verificacion", {
+        errorName: error instanceof Error ? error.name : "Unknown",
+        providerStatus: error instanceof EmailProviderError ? error.status : undefined,
+        providerCode: error instanceof EmailProviderError ? error.providerCode : undefined,
+        providerMessage: error instanceof EmailProviderError ? error.providerMessage : undefined,
+        emailKind: "registration-verification",
+        recipientDomain: pending.email.split("@")[1],
+        pendingRegistrationId: pending.id,
+      });
+      await this.database.pendingRegistration
+        .delete({ where: { id: pending.id } })
+        .catch(() => undefined);
+      throw new AppError("El proveedor de correo rechazó el envío", {
+        status: 503,
+        code: "EMAIL_PROVIDER_ERROR",
+        safeToExpose: true,
+        publicMessage: "No pudimos enviar el correo. Inténtalo nuevamente.",
+      });
+    }
     return { user: { email: pending.email, firstName: pending.firstName } };
   }
 
@@ -423,11 +427,24 @@ export class AuthService {
       const url = new URL(env.EMAIL_VERIFICATION_PATH, env.APP_WEB_URL);
       url.searchParams.set("token", rawToken);
       try {
-        await this.emails.sendVerification({ recipient: updated.email, firstName: updated.firstName, verificationUrl: url.toString(), expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS });
-        await this.database.pendingRegistration.update({ where: { id: updated.id }, data: { emailSentAt: new Date() } });
+        await this.emails.sendVerification({
+          recipient: updated.email,
+          firstName: updated.firstName,
+          verificationUrl: url.toString(),
+          expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+        });
+        await this.database.pendingRegistration.update({
+          where: { id: updated.id },
+          data: { emailSentAt: new Date() },
+        });
       } catch (error: unknown) {
-        await this.database.pendingRegistration.update({ where: { id: updated.id }, data: { revokedAt: new Date() } }).catch(() => undefined);
-        logger.error("Falló el reenvío de registro pendiente", { errorName: error instanceof Error ? error.name : "Unknown", pendingRegistrationId: updated.id });
+        await this.database.pendingRegistration
+          .update({ where: { id: updated.id }, data: { revokedAt: new Date() } })
+          .catch(() => undefined);
+        logger.error("Falló el reenvío de registro pendiente", {
+          errorName: error instanceof Error ? error.name : "Unknown",
+          pendingRegistrationId: updated.id,
+        });
       }
       return;
     }
@@ -474,32 +491,97 @@ export class AuthService {
 
   async verifyEmail(rawToken: string): Promise<void> {
     const tokenHash = hashOpaqueToken(rawToken);
-    const pending = await this.database.pendingRegistration.findUnique({ where: { verificationTokenHash: tokenHash } });
+    const pending = await this.database.pendingRegistration.findUnique({
+      where: { verificationTokenHash: tokenHash },
+    });
     if (pending) {
-      await withTransactionRetry(() => this.database.$transaction(async (tx) => {
-        const now = new Date();
-        const current = await tx.pendingRegistration.findUnique({ where: { id: pending.id } });
-        if (!current || current.consumedAt || current.revokedAt)
-          throw new AppError("Token utilizado", { status: 409, code: "VERIFICATION_TOKEN_USED", safeToExpose: true, publicMessage: "Este enlace de verificación ya fue utilizado" });
-        if (current.expiresAt <= now)
-          throw new AppError("Token expirado", { status: 410, code: "VERIFICATION_TOKEN_EXPIRED", safeToExpose: true, publicMessage: "El enlace de verificación ha expirado" });
-        if (await tx.user.findUnique({ where: { email: current.email }, select: { id: true } }))
-          throw new ConflictError("Email duplicado", "Ya existe una cuenta con este correo");
-        const owner = await tx.role.findUnique({ where: { code: "OWNER" }, select: { id: true } });
-        if (!owner) throw new AppError("El rol OWNER no está configurado");
-        const user = await tx.user.create({ data: {
-          email: current.email, passwordHash: current.passwordHash, firstName: current.firstName,
-          lastName: current.lastName, isEmailVerified: true, termsAcceptedAt: current.termsAcceptedAt,
-          privacyAcceptedAt: current.privacyAcceptedAt, legalVersion: current.legalVersion,
-        }});
-        await tx.authIdentity.create({ data: { userId: user.id, provider: "LOCAL", providerSubject: user.email, providerEmail: user.email } });
-        const workspace = await tx.workspace.create({ data: { name: `Espacio de ${user.firstName}`, type: "PERSONAL", ownerUserId: user.id } });
-        await tx.workspaceMember.create({ data: { workspaceId: workspace.id, userId: user.id, roleId: owner.id, status: "ACTIVE", joinedAt: now } });
-        await tx.userPreference.create({ data: { userId: user.id, defaultWorkspaceId: workspace.id, theme: "LIGHT" } });
-        const consumed = await tx.pendingRegistration.updateMany({ where: { id: current.id, consumedAt: null, revokedAt: null }, data: { consumedAt: now } });
-        if (consumed.count !== 1) throw new AppError("Consumo concurrente", { status: 409, code: "VERIFICATION_TOKEN_USED" });
-        await tx.pendingRegistration.updateMany({ where: { email: current.email, id: { not: current.id }, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+      await withTransactionRetry(() =>
+        this.database.$transaction(
+          async (tx) => {
+            const now = new Date();
+            const current = await tx.pendingRegistration.findUnique({ where: { id: pending.id } });
+            if (!current || current.consumedAt || current.revokedAt)
+              throw new AppError("Token utilizado", {
+                status: 409,
+                code: "VERIFICATION_TOKEN_USED",
+                safeToExpose: true,
+                publicMessage: "Este enlace de verificación ya fue utilizado",
+              });
+            if (current.expiresAt <= now)
+              throw new AppError("Token expirado", {
+                status: 410,
+                code: "VERIFICATION_TOKEN_EXPIRED",
+                safeToExpose: true,
+                publicMessage: "El enlace de verificación ha expirado",
+              });
+            if (await tx.user.findUnique({ where: { email: current.email }, select: { id: true } }))
+              throw new ConflictError("Email duplicado", "Ya existe una cuenta con este correo");
+            const owner = await tx.role.findUnique({
+              where: { code: "OWNER" },
+              select: { id: true },
+            });
+            if (!owner) throw new AppError("El rol OWNER no está configurado");
+            const user = await tx.user.create({
+              data: {
+                email: current.email,
+                passwordHash: current.passwordHash,
+                firstName: current.firstName,
+                lastName: current.lastName,
+                isEmailVerified: true,
+                termsAcceptedAt: current.termsAcceptedAt,
+                privacyAcceptedAt: current.privacyAcceptedAt,
+                legalVersion: current.legalVersion,
+              },
+            });
+            await tx.authIdentity.create({
+              data: {
+                userId: user.id,
+                provider: "LOCAL",
+                providerSubject: user.email,
+                providerEmail: user.email,
+              },
+            });
+            const workspace = await tx.workspace.create({
+              data: {
+                name: `Espacio de ${user.firstName}`,
+                type: "PERSONAL",
+                ownerUserId: user.id,
+              },
+            });
+            await tx.workspaceMember.create({
+              data: {
+                workspaceId: workspace.id,
+                userId: user.id,
+                roleId: owner.id,
+                status: "ACTIVE",
+                joinedAt: now,
+              },
+            });
+            await tx.userPreference.create({
+              data: { userId: user.id, defaultWorkspaceId: workspace.id, theme: "LIGHT" },
+            });
+            const consumed = await tx.pendingRegistration.updateMany({
+              where: { id: current.id, consumedAt: null, revokedAt: null },
+              data: { consumedAt: now },
+            });
+            if (consumed.count !== 1)
+              throw new AppError("Consumo concurrente", {
+                status: 409,
+                code: "VERIFICATION_TOKEN_USED",
+              });
+            await tx.pendingRegistration.updateMany({
+              where: {
+                email: current.email,
+                id: { not: current.id },
+                consumedAt: null,
+                revokedAt: null,
+              },
+              data: { revokedAt: now },
+            });
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        ),
+      );
       return;
     }
     await withTransactionRetry(() =>
@@ -606,41 +688,130 @@ export class AuthService {
     if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
   }
 
-  async requestEmailChange(userId: string, newEmail: string, currentPassword: string, metadata: SessionMetadata) {
-    const user = await this.database.user.findUnique({ where: { id: userId }, include: { authIdentities: { where: { provider: "LOCAL" } } } });
-    if (!user || !user.passwordHash || user.authIdentities.length === 0 || !(await this.passwords.verify(user.passwordHash, currentPassword)))
+  async requestEmailChange(
+    userId: string,
+    newEmail: string,
+    currentPassword: string,
+    metadata: SessionMetadata,
+  ) {
+    const user = await this.database.user.findUnique({
+      where: { id: userId },
+      include: { authIdentities: { where: { provider: "LOCAL" } } },
+    });
+    if (
+      !user ||
+      !user.passwordHash ||
+      user.authIdentities.length === 0 ||
+      !(await this.passwords.verify(user.passwordHash, currentPassword))
+    )
       throw new UnauthorizedError("Contraseña incorrecta", "La contraseña actual no es correcta");
-    if (user.email === newEmail) throw new AppError("Correo sin cambios", { status: 400, code: "EMAIL_UNCHANGED", safeToExpose: true, publicMessage: "Ingresa un correo diferente" });
-    if (await this.database.user.findUnique({ where: { email: newEmail }, select: { id: true } })) throw new ConflictError("Correo ocupado", "Este correo no está disponible");
+    if (user.email === newEmail)
+      throw new AppError("Correo sin cambios", {
+        status: 400,
+        code: "EMAIL_UNCHANGED",
+        safeToExpose: true,
+        publicMessage: "Ingresa un correo diferente",
+      });
+    if (await this.database.user.findUnique({ where: { email: newEmail }, select: { id: true } }))
+      throw new ConflictError("Correo ocupado", "Este correo no está disponible");
     const rawToken = createOpaqueToken();
     const record = await this.database.$transaction(async (tx) => {
-      await tx.emailChangeRequest.updateMany({ where: { userId, consumedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
-      return tx.emailChangeRequest.create({ data: { userId, newEmail, tokenHash: hashOpaqueToken(rawToken), expiresAt: new Date(Date.now() + env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS * 3_600_000), ...(metadata.ipAddress ? { requestIpAddress: metadata.ipAddress } : {}), ...(metadata.userAgent ? { userAgent: metadata.userAgent } : {}) } });
+      await tx.emailChangeRequest.updateMany({
+        where: { userId, consumedAt: null, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return tx.emailChangeRequest.create({
+        data: {
+          userId,
+          newEmail,
+          tokenHash: hashOpaqueToken(rawToken),
+          expiresAt: new Date(Date.now() + env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS * 3_600_000),
+          ...(metadata.ipAddress ? { requestIpAddress: metadata.ipAddress } : {}),
+          ...(metadata.userAgent ? { userAgent: metadata.userAgent } : {}),
+        },
+      });
     });
-    const url = new URL("/verify-email-change", env.APP_WEB_URL); url.searchParams.set("token", rawToken);
+    const url = new URL("/verify-email-change", env.APP_WEB_URL);
+    url.searchParams.set("token", rawToken);
     try {
-      await this.emails.sendVerification({ recipient: newEmail, firstName: user.firstName, verificationUrl: url.toString(), expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS });
-      await this.database.emailChangeRequest.update({ where: { id: record.id }, data: { emailSentAt: new Date() } });
+      await this.emails.sendVerification({
+        recipient: newEmail,
+        firstName: user.firstName,
+        verificationUrl: url.toString(),
+        expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+      });
+      await this.database.emailChangeRequest.update({
+        where: { id: record.id },
+        data: { emailSentAt: new Date() },
+      });
     } catch {
-      await this.database.emailChangeRequest.update({ where: { id: record.id }, data: { revokedAt: new Date() } }).catch(() => undefined);
-      throw new AppError("Fallo proveedor de correo", { status: 503, code: "EMAIL_PROVIDER_ERROR", safeToExpose: true, publicMessage: "No pudimos enviar el correo. Inténtalo nuevamente." });
+      await this.database.emailChangeRequest
+        .update({ where: { id: record.id }, data: { revokedAt: new Date() } })
+        .catch(() => undefined);
+      throw new AppError("Fallo proveedor de correo", {
+        status: 503,
+        code: "EMAIL_PROVIDER_ERROR",
+        safeToExpose: true,
+        publicMessage: "No pudimos enviar el correo. Inténtalo nuevamente.",
+      });
     }
     return { newEmail, expiresAt: record.expiresAt };
   }
 
   async confirmEmailChange(rawToken: string): Promise<void> {
     const tokenHash = hashOpaqueToken(rawToken);
-    await withTransactionRetry(() => this.database.$transaction(async (tx) => {
-      const request = await tx.emailChangeRequest.findUnique({ where: { tokenHash } }); const now = new Date();
-      if (!request) throw new AppError("Token inválido", { status: 400, code: "EMAIL_CHANGE_TOKEN_INVALID", safeToExpose: true });
-      if (request.consumedAt || request.revokedAt) throw new AppError("Token utilizado", { status: 409, code: "EMAIL_CHANGE_TOKEN_USED", safeToExpose: true });
-      if (request.expiresAt <= now) throw new AppError("Token expirado", { status: 410, code: "EMAIL_CHANGE_TOKEN_EXPIRED", safeToExpose: true });
-      if (await tx.user.findUnique({ where: { email: request.newEmail }, select: { id: true } })) throw new ConflictError("Correo ocupado", "Este correo ya no está disponible");
-      await tx.user.update({ where: { id: request.userId }, data: { email: request.newEmail, isEmailVerified: true, updatedAt: now } });
-      await tx.authIdentity.updateMany({ where: { userId: request.userId, provider: "LOCAL" }, data: { providerSubject: request.newEmail, providerEmail: request.newEmail } });
-      await tx.emailChangeRequest.update({ where: { id: request.id }, data: { consumedAt: now } });
-      await tx.emailChangeRequest.updateMany({ where: { userId: request.userId, id: { not: request.id }, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+    await withTransactionRetry(() =>
+      this.database.$transaction(
+        async (tx) => {
+          const request = await tx.emailChangeRequest.findUnique({ where: { tokenHash } });
+          const now = new Date();
+          if (!request)
+            throw new AppError("Token inválido", {
+              status: 400,
+              code: "EMAIL_CHANGE_TOKEN_INVALID",
+              safeToExpose: true,
+            });
+          if (request.consumedAt || request.revokedAt)
+            throw new AppError("Token utilizado", {
+              status: 409,
+              code: "EMAIL_CHANGE_TOKEN_USED",
+              safeToExpose: true,
+            });
+          if (request.expiresAt <= now)
+            throw new AppError("Token expirado", {
+              status: 410,
+              code: "EMAIL_CHANGE_TOKEN_EXPIRED",
+              safeToExpose: true,
+            });
+          if (
+            await tx.user.findUnique({ where: { email: request.newEmail }, select: { id: true } })
+          )
+            throw new ConflictError("Correo ocupado", "Este correo ya no está disponible");
+          await tx.user.update({
+            where: { id: request.userId },
+            data: { email: request.newEmail, isEmailVerified: true, updatedAt: now },
+          });
+          await tx.authIdentity.updateMany({
+            where: { userId: request.userId, provider: "LOCAL" },
+            data: { providerSubject: request.newEmail, providerEmail: request.newEmail },
+          });
+          await tx.emailChangeRequest.update({
+            where: { id: request.id },
+            data: { consumedAt: now },
+          });
+          await tx.emailChangeRequest.updateMany({
+            where: {
+              userId: request.userId,
+              id: { not: request.id },
+              consumedAt: null,
+              revokedAt: null,
+            },
+            data: { revokedAt: now },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      ),
+    );
   }
 
   async getPendingEmailChange(userId: string) {

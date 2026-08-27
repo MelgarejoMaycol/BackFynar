@@ -70,6 +70,16 @@ describe("dashboard schemas y cálculos", () => {
     ).toBeNull();
   });
 
+  it.each([
+    ["2026-08-18T12:00:00Z", "2026-07-25T05:00:00.000Z", "2026-08-25T05:00:00.000Z"],
+    ["2026-08-26T12:00:00Z", "2026-08-25T05:00:00.000Z", "2026-09-25T05:00:00.000Z"],
+  ])("construye Mi ciclo 25 para %s", (now, expectedStart, expectedEnd) => {
+    const query = dashboardQuerySchema.parse({ period: "MY_CYCLE" });
+    const period = buildDashboardPeriod(query, "America/Bogota", new Date(now), 25);
+    expect(period.start.toISOString()).toBe(expectedStart);
+    expect(period.endExclusive.toISOString()).toBe(expectedEnd);
+  });
+
   it("serializa Decimal sin convertir dinero a number", () => {
     const mapped = toDashboardAccount({
       id: "account",

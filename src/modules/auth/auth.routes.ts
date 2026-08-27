@@ -30,7 +30,12 @@ authRouter.get("/google/callback", limiter(20), controller.googleCallback);
 authRouter.post("/google/complete", limiter(5), controller.completeGoogleRegistration);
 authRouter.post("/email-change/request", limiter(5), authenticate, controller.requestEmailChange);
 authRouter.post("/email-change/confirm", limiter(10), controller.confirmEmailChange);
-authRouter.get("/email-change/pending", limiter(20), authenticate, controller.getPendingEmailChange);
+authRouter.get(
+  "/email-change/pending",
+  limiter(20),
+  authenticate,
+  controller.getPendingEmailChange,
+);
 authRouter.delete("/email-change/pending", limiter(5), authenticate, controller.cancelEmailChange);
 authRouter.post("/refresh", limiter(30), controller.refresh);
 authRouter.post("/logout", controller.logout);

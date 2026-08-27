@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import app from "../../src/app.js";
 import { prisma } from "../../src/database/prisma.js";
+import { registerVerified } from "./helpers/register-verified.js";
 
 const suffix = randomUUID().replaceAll("-", "");
 const password = "Phase eight secure password 1!";
@@ -45,17 +46,12 @@ describe.sequential("Fase 8 reportes básicos reales", () => {
 
   it("prepara dos workspaces y devuelve reportes vacíos", async () => {
     for (const actor of actors) {
-      const response = await request(app)
-        .post("/api/v1/auth/register")
-        .send({ email: actor.email, password, firstName: "Phase8", acceptedTerms: true });
-      expect(response.status).toBe(201);
-      actor.id = response.body.data.user.id;
-      await prisma.user.update({ where: { id: actor.id }, data: { isEmailVerified: true } });
-      const login = await request(app).post("/api/v1/auth/login").send({ email: actor.email, password });
+      const { user, workspace, login } = await registerVerified({
+        email: actor.email, password, firstName: "Phase8",
+      });
+      actor.id = user.id;
       actor.access = login.body.data.tokens.accessToken;
-      actor.workspaceId = (
-        await prisma.workspace.findFirstOrThrow({ where: { ownerUserId: actor.id } })
-      ).id;
+      actor.workspaceId = workspace.id;
     }
     const empty = await request(app)
       .get(`${endpoint("income-vs-expenses", actors[1]!.workspaceId)}?currency=COP`)

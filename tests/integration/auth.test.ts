@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import app from "../../src/app.js";
@@ -6,6 +6,7 @@ import { prisma } from "../../src/database/prisma.js";
 import { AuthService } from "../../src/modules/auth/auth.service.js";
 import { passwordService } from "../../src/modules/auth/auth-password.service.js";
 import type { EmailService, PasswordResetEmail } from "../../src/modules/auth/email.service.js";
+import { emailService } from "../../src/modules/auth/email.service.js";
 
 class CapturingEmailService implements EmailService {
   lastEmail?: PasswordResetEmail;
@@ -81,25 +82,42 @@ describe.sequential("autenticacion real", () => {
       },
     });
     try {
+      let verificationToken = "";
+      const emailSpy = vi.spyOn(emailService, "sendVerification").mockImplementation(async (input) => {
+        verificationToken = new URL(input.verificationUrl).searchParams.get("token") ?? "";
+      });
       const response = await request(app)
         .post("/api/v1/auth/register")
         .send({ email: rollbackEmail, password, firstName: "Rollback", acceptedTerms: true });
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(201);
+      const verified = await request(app)
+        .post("/api/v1/auth/verify-email")
+        .send({ token: verificationToken });
+      expect(verified.status).toBe(409);
       expect(await prisma.user.findUnique({ where: { email: rollbackEmail } })).toBeNull();
       expect(await prisma.workspace.count({ where: { users: { email: rollbackEmail } } })).toBe(0);
+      emailSpy.mockRestore();
     } finally {
       await prisma.user.delete({ where: { id: blocker.id } });
     }
   }, 30_000);
 
   it("registra atomicamente las cinco entidades y evita duplicados", async () => {
+    let verificationToken = "";
+    const emailSpy = vi.spyOn(emailService, "sendVerification").mockImplementation(async (input) => {
+      verificationToken = new URL(input.verificationUrl).searchParams.get("token") ?? "";
+    });
     const response = await request(app)
       .post("/api/v1/auth/register")
       .send({ email, password, firstName: "Phase", lastName: "Test", acceptedTerms: true });
     expect(response.status).toBe(201);
-    userId = response.body.data.user.id as string;
     expect(response.body.data.verificationRequired).toBe(true);
     expect(response.headers["set-cookie"]).toBeUndefined();
+    expect(
+      (await request(app).post("/api/v1/auth/verify-email").send({ token: verificationToken })).status,
+    ).toBe(204);
+    emailSpy.mockRestore();
+    userId = (await prisma.user.findUniqueOrThrow({ where: { email } })).id;
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: userId },
       include: {
@@ -110,10 +128,10 @@ describe.sequential("autenticacion real", () => {
     });
     expect(user.authIdentities).toHaveLength(1);
     expect(user.authIdentities[0]?.provider).toBe("LOCAL");
-    expect(user.isEmailVerified).toBe(false);
+    expect(user.isEmailVerified).toBe(true);
     expect(user.termsAcceptedAt).not.toBeNull();
     expect(user.privacyAcceptedAt).not.toBeNull();
-    expect(await prisma.emailVerificationToken.count({ where: { userId } })).toBe(1);
+    expect(await prisma.emailVerificationToken.count({ where: { userId } })).toBe(0);
     expect(user.workspaces[0]?.type).toBe("PERSONAL");
     expect(user.workspaces[0]?.workspaceMembers[0]?.roles.code).toBe("OWNER");
     expect(user.userPreferences?.defaultWorkspaceId).toBe(user.workspaces[0]?.id);
@@ -125,10 +143,6 @@ describe.sequential("autenticacion real", () => {
   }, 30_000);
 
   it("protege login, JWT y me", async () => {
-    const unverified = await request(app).post("/api/v1/auth/login").send({ email, password });
-    expect(unverified.status).toBe(403);
-    expect(unverified.body.error.code).toBe("EMAIL_NOT_VERIFIED");
-    await prisma.user.update({ where: { id: userId }, data: { isEmailVerified: true } });
     expect(
       (await request(app).post("/api/v1/auth/login").send({ email, password: "wrong-password" }))
         .status,

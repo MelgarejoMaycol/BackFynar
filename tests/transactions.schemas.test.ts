@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   expenseSchema,
+  incomeSchema,
   adjustmentSchema,
   listTransactionsSchema,
   transactionMoneySchema,
@@ -28,6 +29,15 @@ describe("contratos de movimientos", () => {
     );
     expect(expenseSchema.safeParse({ ...base, workspaceId: uuid }).success).toBe(false);
     expect(expenseSchema.safeParse({ ...base, currentBalance: "1.00" }).success).toBe(false);
+  });
+  it("permite omitir categoría solo en el contrato de ingreso", () => {
+    const withoutCategory = {
+      accountId: base.accountId,
+      amount: base.amount,
+      occurredAt: base.occurredAt,
+    };
+    expect(incomeSchema.safeParse(withoutCategory).success).toBe(true);
+    expect(expenseSchema.safeParse(withoutCategory).success).toBe(false);
   });
   it("rechaza transferencia a la misma cuenta", () =>
     expect(transferSchema.safeParse({ ...base, destinationAccountId: uuid }).success).toBe(false));

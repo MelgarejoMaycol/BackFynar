@@ -4,6 +4,7 @@ import express from "express";
 import request from "supertest";
 import app from "../../src/app.js";
 import { prisma } from "../../src/database/prisma.js";
+import { registerVerified } from "./helpers/register-verified.js";
 import { authenticate } from "../../src/common/middlewares/authenticate.js";
 import { errorHandler } from "../../src/common/middlewares/error-handler.js";
 import {
@@ -50,21 +51,13 @@ describe.sequential("Fase 2 real e aislamiento", () => {
 
   it("registra dos identidades aisladas", async () => {
     for (const user of users) {
-      const response = await request(app)
-        .post("/api/v1/auth/register")
-        .send({ email: user.email, password, firstName: user.firstName, acceptedTerms: true });
-      expect(response.status).toBe(201);
-      user.id = response.body.data.user.id as string;
-      await prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } });
-      const login = await request(app).post("/api/v1/auth/login").send({ email: user.email, password });
+      const { user: created, workspace, login } = await registerVerified({
+        email: user.email, password, firstName: user.firstName,
+      });
+      user.id = created.id;
       user.access = login.body.data.tokens.accessToken as string;
       user.refreshCookie = refreshCookieFrom(login);
-      user.workspaceId = (
-        await prisma.workspace.findFirstOrThrow({
-          where: { ownerUserId: user.id },
-          select: { id: true },
-        })
-      ).id;
+      user.workspaceId = workspace.id;
     }
   }, 60_000);
 
@@ -136,6 +129,18 @@ describe.sequential("Fase 2 real e aislamiento", () => {
           .send({ defaultWorkspaceId: users[0]!.workspaceId })
       ).status,
     ).toBe(200);
+  });
+
+  it("recupera preferencias faltantes sin bloquear configuracion", async () => {
+    await prisma.userPreference.delete({ where: { userId: users[0]!.id } });
+    const recovered = await request(app)
+      .get("/api/v1/users/me/preferences")
+      .set(bearer(users[0]!.access));
+    expect(recovered.status).toBe(200);
+    expect(recovered.body.data.defaultWorkspaceId).toBe(users[0]!.workspaceId);
+    expect(
+      await prisma.userPreference.count({ where: { userId: users[0]!.id } }),
+    ).toBe(1);
   });
 
   it("lista, consulta y selecciona solo workspaces autorizados", async () => {
@@ -300,6 +305,39 @@ describe.sequential("Fase 2 real e aislamiento", () => {
         .status,
     ).toBe(204);
     expect((await request(app).get("/api/v1/users/me").set(bearer(users[0]!.access))).status).toBe(
+      401,
+    );
+  });
+
+  it("elimina y anonimiza una cuenta con confirmación fuerte", async () => {
+    const target = users[1]!;
+    const rejected = await request(app)
+      .delete("/api/v1/users/me")
+      .set(bearer(target.access))
+      .send({ confirmation: "eliminar" });
+    expect(rejected.status).toBe(400);
+
+    const deleted = await request(app)
+      .delete("/api/v1/users/me")
+      .set(bearer(target.access))
+      .send({ confirmation: "ELIMINAR" });
+    expect(deleted.status).toBe(204);
+    expect((deleted.headers["set-cookie"] as string[] | undefined)?.[0]).toMatch(/Max-Age=0|1970/);
+
+    const anonymized = await prisma.user.findUniqueOrThrow({ where: { id: target.id } });
+    expect(anonymized).toMatchObject({
+      firstName: "Cuenta eliminada",
+      lastName: null,
+      phone: null,
+      avatarUrl: null,
+      isActive: false,
+    });
+    expect(anonymized.email).toBe(`deleted-${target.id}@deleted.invalid`);
+    expect(anonymized.passwordHash).toBeNull();
+    expect(anonymized.deletedAt).toBeInstanceOf(Date);
+    expect(await prisma.authIdentity.count({ where: { userId: target.id } })).toBe(0);
+    expect(await prisma.refreshToken.count({ where: { userId: target.id } })).toBe(0);
+    expect((await request(app).get("/api/v1/users/me").set(bearer(target.access))).status).toBe(
       401,
     );
   });

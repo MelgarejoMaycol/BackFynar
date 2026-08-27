@@ -236,4 +236,37 @@ describe("estimador de créditos", () => {
       CreditMathError,
     );
   });
+
+  it("completa la cuota del caso QA sin sobrescribir los datos informados", () => {
+    const result = estimateCredit({
+      originalPrincipal: "10000000",
+      currentBalance: "10000000",
+      interestRate: "0.015",
+      interestRateBasis: "EFFECTIVE_MONTHLY",
+      paymentFrequency: "MONTHLY",
+      remainingInstallments: 24,
+      firstPaymentDate: date("2026-09-24"),
+    });
+    expect(result.originalPrincipal.source).toBe("PROVIDED");
+    expect(result.currentBalance.source).toBe("PROVIDED");
+    expect(result.remainingInstallments).toMatchObject({ value: 24, source: "PROVIDED" });
+    expect(result.periodicRate.value!.toFixed(3)).toBe("0.015");
+    expect(result.paymentAmount).toMatchObject({ source: "CALCULATED" });
+    expect(result.paymentAmount.value!.toFixed(2)).toBe("499241.02");
+    expect(result.estimatedEndDate.value!.toISOString()).toBe("2028-08-24T00:00:00.000Z");
+  });
+
+  it("proyecta un crédito parcialmente pagado sobre el saldo actual", () => {
+    const result = estimateCredit({
+      originalPrincipal: "23000000",
+      currentBalance: "12000000",
+      interestRate: "0.02",
+      interestRateBasis: "EFFECTIVE_MONTHLY",
+      paymentFrequency: "MONTHLY",
+      remainingInstallments: 24,
+    });
+    expect(result.paymentAmount.value!.toFixed(2)).toBe("634453.17");
+    expect(result.originalPrincipal.value!.toFixed(2)).toBe("23000000.00");
+    expect(result.currentBalance.value!.toFixed(2)).toBe("12000000.00");
+  });
 });

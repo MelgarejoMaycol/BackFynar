@@ -21,7 +21,7 @@ describe("schemas monetarios de cuentas", () => {
   it.each(["1.234", "1e3", "NaN", "Infinity", "01.00", "", 12.5])("rechaza %j", (value) =>
     expect(moneySchema.safeParse(value).success).toBe(false),
   );
-  it("acepta cuentas asset y liability validas", () => {
+  it("acepta cuentas bancarias y reserva las tarjetas para su modulo", () => {
     expect(createAccountSchema.safeParse(asset).success).toBe(true);
     expect(
       createAccountSchema.safeParse({
@@ -34,7 +34,7 @@ describe("schemas monetarios de cuentas", () => {
         billingDay: 15,
         paymentDueDay: 28,
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
   it("rechaza campos internos, enums, dias y limites invalidos", () => {
     for (const extra of [{ workspaceId: "x" }, { currentBalance: "1.00" }, { id: "x" }])
@@ -55,6 +55,7 @@ describe("schemas monetarios de cuentas", () => {
   it("exige patch no vacio y favorito estricto", () => {
     expect(updateAccountSchema.safeParse({}).success).toBe(false);
     expect(updateAccountSchema.safeParse({ name: "  Nueva  " }).success).toBe(true);
+    expect(updateAccountSchema.safeParse({ openingBalance: "20.00" }).success).toBe(false);
     expect(updateAccountSchema.safeParse({ deletedAt: null }).success).toBe(false);
     expect(favoriteAccountSchema.safeParse({ isFavorite: true }).success).toBe(true);
     expect(favoriteAccountSchema.safeParse({ isFavorite: true, workspaceId: "x" }).success).toBe(

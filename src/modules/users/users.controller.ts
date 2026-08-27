@@ -1,7 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import type { ZodType } from "zod";
 import { ValidationError } from "../../common/errors/app-error.js";
-import { updatePreferencesSchema, updateProfileSchema } from "./users.schemas.js";
+import { clearRefreshCookie } from "../auth/auth-cookie.js";
+import {
+  deleteAccountSchema,
+  updatePreferencesSchema,
+  updateProfileSchema,
+} from "./users.schemas.js";
 import { usersService } from "./users.service.js";
 
 const parse = <T>(schema: ZodType<T>, body: unknown): T => {
@@ -49,4 +54,9 @@ export const updatePreferences = execute(async (request, response) => {
       parse(updatePreferencesSchema, request.body),
     ),
   });
+});
+export const deleteAccount = execute(async (request, response) => {
+  await usersService.deleteAccount(request.auth!.userId, parse(deleteAccountSchema, request.body));
+  clearRefreshCookie(response);
+  response.status(204).send();
 });

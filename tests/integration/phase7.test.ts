@@ -4,6 +4,7 @@ import request from "supertest";
 import { Prisma } from "@prisma/client";
 import app from "../../src/app.js";
 import { prisma } from "../../src/database/prisma.js";
+import { registerVerified } from "./helpers/register-verified.js";
 const suffix = randomUUID().replaceAll("-", "");
 const password = "Phase seven secure password 1!";
 const actors = ["owner", "other"].map((label) => ({
@@ -59,17 +60,12 @@ describe.sequential("Fase 7 presupuestos reales", () => {
   });
   it("prepara workspaces, cuentas y categorías", async () => {
     for (const actor of actors) {
-      const r = await request(app)
-        .post("/api/v1/auth/register")
-        .send({ email: actor.email, password, firstName: "Phase7", acceptedTerms: true });
-      expect(r.status).toBe(201);
-      actor.id = r.body.data.user.id;
-      await prisma.user.update({ where: { id: actor.id }, data: { isEmailVerified: true } });
-      const login = await request(app).post("/api/v1/auth/login").send({ email: actor.email, password });
+      const { user, workspace, login } = await registerVerified({
+        email: actor.email, password, firstName: "Phase7",
+      });
+      actor.id = user.id;
       actor.access = login.body.data.tokens.accessToken;
-      actor.workspaceId = (
-        await prisma.workspace.findFirstOrThrow({ where: { ownerUserId: actor.id } })
-      ).id;
+      actor.workspaceId = workspace.id;
     }
     const make = async (workspaceId: string, name: string, currency = "COP", isActive = true) =>
       (
@@ -484,7 +480,7 @@ describe.sequential("Fase 7 presupuestos reales", () => {
       orderBy: { id: "asc" },
     });
     expect((await request(app).delete(`${base()}/${id}`).set(auth(actors[0]!.access))).status).toBe(
-      204,
+      200,
     );
     expect(
       (await request(app).get(base()).set(auth(actors[0]!.access))).body.data.items.some(
@@ -666,7 +662,7 @@ describe.sequential("Fase 7 presupuestos reales", () => {
     await insert({
       amount: "900",
       categoryId: expenseGlobal,
-      occurredAt: "2026-08-20T12:00:00Z",
+      occurredAt: "2026-09-01T12:00:00Z",
     });
     await insert({
       amount: "900",

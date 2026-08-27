@@ -1,5 +1,11 @@
-import { Prisma, type category_type, type transaction_type } from "@prisma/client";
+import {
+  Prisma,
+  type account_nature,
+  type category_type,
+  type transaction_type,
+} from "@prisma/client";
 import { AppError, ConflictError } from "../../common/errors/app-error.js";
+import { recordDeletionAudit } from "../../common/audit/deletion-audit.js";
 import { toPublicTransaction, transactionSelect } from "./transactions.mapper.js";
 import { transactionsRepository, type TransactionsRepository } from "./transactions.repository.js";
 import type {
@@ -9,6 +15,10 @@ import type {
   TransferInput,
   UpdateTransactionInput,
 } from "./transactions.schemas.js";
+import {
+  removeCardPurchaseTracking,
+  synchronizeCardPurchase,
+} from "../cards/domain/card-purchase.js";
 
 const notFound = () =>
   new AppError("Movimiento no encontrado", {
@@ -35,16 +45,67 @@ function assertSupportedFinancialType(
 }
 const decimal = (value: string) => new Prisma.Decimal(value);
 type Tx = Prisma.TransactionClient;
+export const balanceDeltas = (
+  type: SupportedFinancialType,
+  amount: Prisma.Decimal,
+  sourceNature: account_nature,
+  destinationNature?: account_nature,
+) => {
+  const sourceDelta =
+    type === "INCOME"
+      ? sourceNature === "ASSET"
+        ? amount
+        : amount.negated()
+      : sourceNature === "ASSET"
+        ? amount.negated()
+        : amount;
+  const destinationDelta =
+    type === "TRANSFER" ? (destinationNature === "LIABILITY" ? amount.negated() : amount) : null;
+  return { sourceDelta, destinationDelta };
+};
+export const assertLiabilityPaymentWithinBalance = (
+  amount: Prisma.Decimal,
+  currentBalance: Prisma.Decimal,
+) => {
+  if (amount.gt(currentBalance))
+    throw new ConflictError(
+      "Pago superior al saldo pendiente",
+      "El pago no puede superar el saldo pendiente de la tarjeta o crédito.",
+    );
+};
+export const assertSufficientTransferFunds = (
+  amount: Prisma.Decimal,
+  currentBalance: Prisma.Decimal,
+) => {
+  if (amount.gt(currentBalance))
+    throw new ConflictError(
+      "Fondos insuficientes",
+      "No tienes saldo suficiente en la cuenta de origen para realizar esta transferencia.",
+    );
+};
 export class TransactionsService {
   constructor(private readonly repository: TransactionsRepository = transactionsRepository) {}
   async list(workspaceId: string, filters: ListTransactionsInput) {
     const [rows, total] = await this.repository.list(workspaceId, filters);
+    const hasMore = !filters.page && rows.length > filters.limit;
+    const page = rows.slice(0, filters.limit);
+    const last = page.at(-1);
     return {
-      items: rows.map(toPublicTransaction),
-      page: filters.page,
+      items: page.map(toPublicTransaction),
       limit: filters.limit,
       total,
+      page: filters.page ?? 1,
       totalPages: Math.ceil(total / filters.limit),
+      nextCursor:
+        hasMore && last
+          ? Buffer.from(
+              JSON.stringify({
+                occurredAt: last.occurredAt,
+                createdAt: last.createdAt,
+                id: last.id,
+              }),
+            ).toString("base64url")
+          : null,
     };
   }
   async get(workspaceId: string, id: string) {
@@ -58,7 +119,7 @@ export class TransactionsService {
     type: transaction_type,
     accountId: string,
     destinationId: string | null,
-    categoryId: string,
+    categoryId: string | undefined,
   ) {
     const ids = [accountId, ...(destinationId ? [destinationId] : [])];
     await this.repository.lockAccounts(tx, ids);
@@ -73,36 +134,61 @@ export class TransactionsService {
       });
     const source = accounts.find((a) => a.id === accountId)!;
     const destination = destinationId ? accounts.find((a) => a.id === destinationId)! : null;
-    if (type === "INCOME" && source.nature !== "ASSET")
+    if (type === "INCOME" && source.nature !== "ASSET" && source.type !== "CREDIT_CARD")
       throw new ConflictError(
         "Ingreso en pasivo no soportado",
-        "Los ingresos directos requieren una cuenta de naturaleza ASSET",
+        "Los ingresos directos solo pueden aplicarse a activos o tarjetas de crédito",
+      );
+    if (type === "TRANSFER" && source.nature !== "ASSET")
+      throw new ConflictError(
+        "Transferencia genérica desde pasivo no soportada",
+        "Los avances de tarjetas deben registrarse desde el flujo especializado de tarjetas.",
+      );
+    if (
+      type === "TRANSFER" &&
+      destination?.nature === "LIABILITY" &&
+      destination.type !== "CREDIT_CARD"
+    )
+      throw new ConflictError(
+        "Pago genérico de crédito no soportado",
+        "Los pagos de créditos deben registrarse desde el cronograma del crédito.",
       );
     if (destination && source.currency !== destination.currency)
       throw new ConflictError(
         "Monedas incompatibles",
         "Las transferencias requieren cuentas con la misma moneda",
       );
-    const expected = type as category_type;
-    const category = await tx.category.findFirst({
-      where: {
-        id: categoryId,
-        type: expected,
-        isActive: true,
-        deletedAt: null,
-        OR: [
-          { workspaceId: null, isSystem: true },
-          { workspaceId, isSystem: false },
-        ],
-      },
-    });
-    if (!category)
+    const categoryOptional = type === "INCOME" && source.type === "CREDIT_CARD";
+    const category = categoryId
+      ? await tx.category.findFirst({
+          where: {
+            id: categoryId,
+            type: type as category_type,
+            isActive: true,
+            deletedAt: null,
+            OR: [
+              { workspaceId: null, isSystem: true },
+              { workspaceId, isSystem: false },
+            ],
+          },
+        })
+      : null;
+    if ((!categoryId && !categoryOptional) || (categoryId && !category))
       throw new AppError("Categoría ajena, archivada o incompatible", {
         status: 404,
         code: "CATEGORY_NOT_FOUND",
         publicMessage: "Categoría no encontrada",
       });
-    return { source, destination, currency: source.currency };
+    const workspace = await tx.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { timezone: true },
+    });
+    return {
+      source,
+      destination,
+      currency: source.currency,
+      timezone: workspace?.timezone ?? "UTC",
+    };
   }
   private async effect(
     tx: Tx,
@@ -114,22 +200,36 @@ export class TransactionsService {
   ) {
     assertSupportedFinancialType(type);
     const signed = direction === 1 ? amount : amount.negated();
-    let sourceDelta: Prisma.Decimal;
-    let destinationDelta: Prisma.Decimal | null = null;
-    switch (type) {
-      case "INCOME":
-        sourceDelta = signed;
-        break;
-      case "EXPENSE":
-        sourceDelta = signed.negated();
-        break;
-      case "TRANSFER":
-        sourceDelta = signed.negated();
-        destinationDelta = signed;
-        break;
-      default:
-        throw unsupportedFinancialType();
-    }
+    const accounts = await tx.financialAccount.findMany({
+      where: { id: { in: [accountId, ...(destinationId ? [destinationId] : [])] } },
+      select: { id: true, nature: true, currentBalance: true, type: true },
+    });
+    const source = accounts.find((account) => account.id === accountId)!;
+    const destination = destinationId
+      ? accounts.find((account) => account.id === destinationId)!
+      : null;
+    const { sourceDelta, destinationDelta } = balanceDeltas(
+      type,
+      signed,
+      source.nature,
+      destination?.nature,
+    );
+    if (direction === 1 && type === "INCOME" && source.nature === "LIABILITY")
+      assertLiabilityPaymentWithinBalance(amount, source.currentBalance);
+    if (direction === 1 && type === "TRANSFER" && destination?.nature === "LIABILITY")
+      assertLiabilityPaymentWithinBalance(amount, destination.currentBalance);
+    if (direction === 1 && type === "TRANSFER" && source.nature === "ASSET")
+      assertSufficientTransferFunds(amount, source.currentBalance);
+    if (
+      direction === 1 &&
+      type === "TRANSFER" &&
+      source.nature === "ASSET" &&
+      amount.gt(source.currentBalance)
+    )
+      throw new ConflictError(
+        "Fondos insuficientes",
+        "No tienes saldo suficiente en la cuenta de origen para realizar esta transferencia.",
+      );
     await tx.financialAccount.update({
       where: { id: accountId },
       data: { currentBalance: { increment: sourceDelta } },
@@ -159,26 +259,56 @@ export class TransactionsService {
       );
       const amount = decimal(input.amount);
       await this.effect(tx, type, input.accountId, destination, amount, 1);
-      return toPublicTransaction(
-        await tx.transaction.create({
-          data: {
-            workspaceId,
-            createdBy: userId,
-            type,
-            status: "CONFIRMED",
-            amount,
-            currency: resources.currency,
-            accountId: input.accountId,
-            destinationAccountId: destination,
-            categoryId: input.categoryId,
-            occurredAt: new Date(input.occurredAt),
-            ...(input.description !== undefined ? { description: input.description } : {}),
-            ...(input.notes !== undefined ? { notes: input.notes } : {}),
-            ...(input.merchantName !== undefined ? { merchantName: input.merchantName } : {}),
-          },
-          select: transactionSelect,
-        }),
-      );
+      const transaction = await tx.transaction.create({
+        data: {
+          workspaceId,
+          createdBy: userId,
+          type,
+          status: "CONFIRMED",
+          amount,
+          currency: resources.currency,
+          accountId: input.accountId,
+          destinationAccountId: destination,
+          categoryId: input.categoryId ?? null,
+          occurredAt: new Date(input.occurredAt),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.notes !== undefined ? { notes: input.notes } : {}),
+          ...(input.merchantName !== undefined ? { merchantName: input.merchantName } : {}),
+          ...(type === "EXPENSE" && resources.source.type === "CREDIT_CARD"
+            ? { metadata: { cardPurchase: true } }
+            : {}),
+        },
+        select: transactionSelect,
+      });
+      if (type === "EXPENSE" && resources.source.type === "CREDIT_CARD") {
+        const details = "cardPurchase" in input ? input.cardPurchase : undefined;
+        await synchronizeCardPurchase(tx, {
+          workspaceId,
+          cardAccountId: resources.source.id,
+          transactionId: transaction.id,
+          amount,
+          occurredAt: new Date(input.occurredAt),
+          ...(details?.installmentCount !== undefined
+            ? { installmentCount: details.installmentCount }
+            : {}),
+          ...(details?.periodicRate
+            ? { periodicRate: decimal(details.periodicRate) }
+            : resources.source.referencePeriodicRate
+              ? { periodicRate: resources.source.referencePeriodicRate }
+              : {}),
+          rateSource: details?.periodicRate
+            ? "INFORMED"
+            : resources.source.referenceRateSource === "INFORMED"
+              ? "INFORMED"
+              : "ESTIMATED",
+          ...(details?.firstDueDate
+            ? { firstDueDate: new Date(`${details.firstDueDate}T00:00:00Z`) }
+            : {}),
+          paymentDueDay: resources.source.paymentDueDay,
+          timezone: resources.timezone,
+        });
+      }
+      return toPublicTransaction(transaction);
     });
   }
   income(w: string, u: string, i: MovementInput) {
@@ -240,6 +370,9 @@ export class TransactionsService {
       if (current.version !== input.version) throw versionConflict();
       if (current.status !== "CONFIRMED")
         throw new ConflictError("Movimiento cancelado", "No puede editar un movimiento cancelado");
+      const existingPurchase = await tx.cardPurchase.findUnique({
+        where: { transactionId: id },
+      });
       const accountId = input.accountId ?? current.accountId!;
       const destination =
         input.destinationAccountId !== undefined
@@ -290,15 +423,39 @@ export class TransactionsService {
         },
       });
       if (result.count !== 1) throw versionConflict();
-      return toPublicTransaction((await this.repository.find(workspaceId, id, tx))!);
+      const updated = (await this.repository.find(workspaceId, id, tx))!;
+      if (current.type === "EXPENSE" && resources.source.type === "CREDIT_CARD") {
+        const details = input.cardPurchase === null ? undefined : input.cardPurchase;
+        await synchronizeCardPurchase(tx, {
+          workspaceId,
+          cardAccountId: accountId,
+          transactionId: id,
+          amount,
+          occurredAt: updated.occurredAt,
+          installmentCount: details?.installmentCount ?? existingPurchase?.installmentCount ?? 1,
+          ...(details?.periodicRate
+            ? { periodicRate: decimal(details.periodicRate) }
+            : existingPurchase?.periodicRate
+              ? { periodicRate: existingPurchase.periodicRate }
+              : {}),
+          ...(details?.firstDueDate
+            ? { firstDueDate: new Date(`${details.firstDueDate}T00:00:00Z`) }
+            : {}),
+          paymentDueDay: resources.source.paymentDueDay,
+          timezone: resources.timezone,
+        });
+      } else if (existingPurchase) {
+        await removeCardPurchaseTracking(tx, id);
+      }
+      return toPublicTransaction(updated);
     });
   }
-  async cancel(workspaceId: string, id: string, version: number) {
-    await this.repository.transaction(async (tx) => {
+  async cancel(workspaceId: string, userId: string, id: string, version: number) {
+    return this.repository.transaction(async (tx) => {
       const current = await this.repository.lockTransaction(tx, id, workspaceId);
       if (!current) throw notFound();
       assertSupportedFinancialType(current.type);
-      if (current.status === "CANCELLED") return;
+      if (current.status === "CANCELLED") return { mode: "CANCELLED" as const };
       if (current.version !== version) throw versionConflict();
       await this.repository.lockAccounts(tx, [
         current.accountId!,
@@ -312,11 +469,21 @@ export class TransactionsService {
         current.amount,
         -1,
       );
+      await removeCardPurchaseTracking(tx, id);
       const result = await tx.transaction.updateMany({
         where: { id, workspaceId, version, status: "CONFIRMED", deletedAt: null },
         data: { status: "CANCELLED", deletedAt: new Date(), version: { increment: 1 } },
       });
       if (result.count !== 1) throw versionConflict();
+      await recordDeletionAudit(tx, {
+        workspaceId,
+        userId,
+        entityType: "TRANSACTION",
+        entityId: id,
+        mode: "CANCELLED",
+        name: current.description,
+      });
+      return { mode: "CANCELLED" as const };
     });
   }
 }

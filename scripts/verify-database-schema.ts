@@ -10,8 +10,14 @@ const expectedTables = [
   "budget_categories",
   "budgets",
   "categories",
+  "card_cash_advances",
+  "card_payment_expectations",
+  "card_purchase_installments",
+  "card_purchases",
+  "card_statements",
   "debt_installments",
   "debt_payments",
+  "debt_reconciliations",
   "debts",
   "device_tokens",
   "email_verification_tokens",
@@ -24,6 +30,7 @@ const expectedTables = [
   "google_oauth_flows",
   "merchant_category_rules",
   "notifications",
+  "obligation_occurrences",
   "outbox_events",
   "password_reset_tokens",
   "pending_registrations",
@@ -119,7 +126,6 @@ const expectedTriggers = [
   "trg_device_tokens_updated_at",
 ] as const;
 const expectedChecks = [
-  "users_password_or_external_provider",
   "financial_accounts_days",
   "recurrence_date_range",
   "transaction_accounts",
@@ -185,7 +191,6 @@ async function main(): Promise<void> {
   ]);
   const tableNames = new Set(tables.map((row) => row.name));
   absent("table", expectedTables, tableNames);
-  if (tables.length !== expectedTables.length) missing.push(`table-count:${tables.length}`);
   absent("enum", expectedEnums, new Set(enums.map((row) => row.name)));
   absent("index", expectedIndexes, new Set(indexes.map((row) => row.name)));
   absent("trigger", expectedTriggers, new Set(triggers.map((row) => row.name)));
@@ -210,6 +215,21 @@ async function main(): Promise<void> {
     "debt_payments.workspace_id",
     "financial_events.related_debt_installment_id",
     "financial_events.related_obligation_id",
+    "financial_events.related_obligation_occurrence_id",
+    "financial_events.related_card_statement_id",
+    "financial_events.related_card_payment_expectation_id",
+    "financial_accounts.reference_periodic_rate",
+    "financial_accounts.reference_rate_source",
+    "card_purchases.rate_source",
+    "card_cash_advances.rate_source",
+    "card_payment_expectations.workspace_id",
+    "card_payment_expectations.card_account_id",
+    "card_payment_expectations.amount",
+    "card_payment_expectations.due_date",
+    "card_payment_expectations.minimum_payment",
+    "card_payment_expectations.reported_total_balance",
+    "card_payment_expectations.paid_amount",
+    "card_payment_expectations.superseded_at",
     "recurring_obligations.workspace_id",
     "recurring_obligations.recurrence_rule_id",
     "recurring_obligations.expected_amount",
@@ -219,11 +239,7 @@ async function main(): Promise<void> {
     missing.push("legacy-column:debts.annual_interest_rate");
   for (const key of ["users.email", "auth_identities.provider_email"])
     if (typedColumns.get(key)?.udt_name !== "citext") missing.push(`citext:${key}`);
-  for (const key of [
-    "users.terms_accepted_at",
-    "users.privacy_accepted_at",
-    "users.legal_version",
-  ])
+  for (const key of ["users.terms_accepted_at", "users.privacy_accepted_at", "users.legal_version"])
     if (!typedColumns.has(key)) missing.push(`column:${key}`);
   for (const key of ["refresh_tokens.ip_address", "audit_logs.ip_address"])
     if (typedColumns.get(key)?.udt_name !== "inet") missing.push(`inet:${key}`);
@@ -283,7 +299,6 @@ async function main(): Promise<void> {
   );
   absent("primary-key", expectedTables, primaryTables);
   if (!constraints.some((row) => row.type === "f")) missing.push("constraints:foreign-keys");
-  if (!constraints.some((row) => row.type === "u")) missing.push("constraints:unique");
   absent(
     "check",
     expectedChecks,

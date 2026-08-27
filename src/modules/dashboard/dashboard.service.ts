@@ -9,6 +9,7 @@ import {
   type DashboardRepository,
 } from "./dashboard.repository.js";
 import type { DashboardQuery } from "./dashboard.schemas.js";
+import { ValidationError } from "../../common/errors/app-error.js";
 
 const zero = () => new Prisma.Decimal(0);
 const fixed = (value: Prisma.Decimal) => value.toDecimalPlaces(2).toFixed(2);
@@ -63,8 +64,17 @@ export class DashboardService {
     timezone: string,
     query: DashboardQuery,
     now = new Date(),
+    userId?: string,
   ) {
-    const period = buildDashboardPeriod(query, timezone, now);
+    const financialCycleStartDay =
+      query.period === "MY_CYCLE" && userId
+        ? await this.repository.financialCycleStartDay(userId)
+        : null;
+    if (query.period === "MY_CYCLE" && !financialCycleStartDay)
+      throw new ValidationError(
+        "Configura el día de inicio de tu ciclo financiero antes de usar Mi ciclo.",
+      );
+    const period = buildDashboardPeriod(query, timezone, now, financialCycleStartDay);
     const [data, budgetPage] = await Promise.all([
       this.repository.read(workspaceId, period, query.recentLimit),
       this.budgets.list(workspaceId, timezone, {

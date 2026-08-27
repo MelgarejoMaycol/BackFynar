@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { addContractMonths } from "./credit-calendar.js";
+import { addContractPeriods } from "./credit-calendar.js";
 import { CreditMathError } from "./credit-math.error.js";
 import type {
   AmortizationInstallment,
@@ -10,6 +10,7 @@ import type {
   InstallmentCalculation,
   InstallmentCalculationInput,
   InterestRateBasis,
+  PaymentFrequency,
 } from "./credit-math.types.js";
 
 export const MONEY_SCALE = 2;
@@ -74,6 +75,29 @@ export function toEffectiveMonthly(value: DecimalInput, basis: InterestRateBasis
     case "NOMINAL_MONTHLY":
       return rate(input);
   }
+}
+
+export function toEffectivePeriodic(
+  value: DecimalInput,
+  basis: InterestRateBasis,
+  frequency: PaymentFrequency,
+): Prisma.Decimal {
+  const monthly = toEffectiveMonthly(value, basis);
+  if (monthly.isZero() || frequency === "MONTHLY") return monthly;
+  if (frequency === "BIMONTHLY") return rate(ONE.plus(monthly).pow(2).minus(ONE));
+  if (frequency === "SEMIANNUAL") return rate(ONE.plus(monthly).pow(6).minus(ONE));
+  return rate(ONE.plus(monthly).pow(TWELVE.div(52)).minus(ONE));
+}
+
+export function effectivePeriodicToMonthly(
+  value: DecimalInput,
+  frequency: PaymentFrequency,
+): Prisma.Decimal {
+  const periodic = nonNegativeRate(value);
+  if (periodic.isZero() || frequency === "MONTHLY") return rate(periodic);
+  if (frequency === "BIMONTHLY") return rate(ONE.plus(periodic).pow(ONE.div(2)).minus(ONE));
+  if (frequency === "SEMIANNUAL") return rate(ONE.plus(periodic).pow(ONE.div(6)).minus(ONE));
+  return rate(ONE.plus(periodic).pow(new Prisma.Decimal(52).div(TWELVE)).minus(ONE));
 }
 
 export function convertInterestRate(
@@ -148,7 +172,11 @@ export function generateAmortizationSchedule(
     });
     schedule.push({
       installmentNumber: index + 1,
-      dueDate: addContractMonths(input.firstPaymentDate, index),
+      dueDate: addContractPeriods(
+        input.firstPaymentDate,
+        index,
+        input.paymentFrequency ?? "MONTHLY",
+      ),
       openingBalance: balance,
       principalAmount: installment.principalAmount,
       interestAmount: installment.interestAmount,

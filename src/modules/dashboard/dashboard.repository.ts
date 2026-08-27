@@ -16,6 +16,14 @@ const transactionWhere = (workspaceId: string, start: Date, end: Date) => ({
 
 export class DashboardRepository {
   constructor(private readonly database: PrismaClient = prisma) {}
+  async financialCycleStartDay(userId: string) {
+    return (
+      await this.database.userPreference.findUnique({
+        where: { userId },
+        select: { financialCycleStartDay: true },
+      })
+    )?.financialCycleStartDay;
+  }
   async read(workspaceId: string, period: DashboardPeriod, recentLimit: number) {
     const [accounts, currentTotals, previousTotals, recentTransactions, expenses] =
       await Promise.all([

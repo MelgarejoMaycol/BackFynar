@@ -15,6 +15,8 @@ export function getDashboard(request: Request, response: Response, next: NextFun
       request.workspace!.workspace.baseCurrency,
       request.workspace!.workspace.timezone,
       parsed.data,
+      new Date(),
+      request.auth!.userId,
     )
     .then((data) => response.status(200).json({ success: true, data }))
     .catch(next);

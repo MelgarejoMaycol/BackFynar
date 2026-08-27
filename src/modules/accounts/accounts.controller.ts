@@ -80,6 +80,12 @@ export const restore = execute(async (request, response) => {
   });
 });
 export const remove = execute(async (request, response) => {
-  await accountsService.remove(request.workspace!.workspaceId, accountId(request));
-  response.status(204).send();
+  response.status(200).json({
+    success: true,
+    data: await accountsService.remove(
+      request.workspace!.workspaceId,
+      request.auth!.userId,
+      accountId(request),
+    ),
+  });
 });

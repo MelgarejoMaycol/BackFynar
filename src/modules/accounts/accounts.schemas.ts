@@ -30,12 +30,23 @@ const controlledFields = {
   isFavorite: z.boolean().optional(),
 };
 
-export const createAccountSchema = z.object(controlledFields).strict();
-export const updateAccountSchema = z
+export const createAccountSchema = z
   .object(controlledFields)
   .strict()
+  .refine(
+    (value) => value.type !== account_type.CREDIT_CARD,
+    "Las tarjetas de crédito se crean desde Créditos y pagos",
+  );
+export const updateAccountSchema = z
+  .object(controlledFields)
+  .omit({ openingBalance: true })
+  .strict()
   .partial()
-  .refine((value) => Object.keys(value).length > 0, "Debe enviar al menos un campo");
+  .refine((value) => Object.keys(value).length > 0, "Debe enviar al menos un campo")
+  .refine(
+    (value) => value.type !== account_type.CREDIT_CARD,
+    "Las tarjetas de crédito se administran desde Créditos y pagos",
+  );
 export const favoriteAccountSchema = z.object({ isFavorite: z.boolean() }).strict();
 export const accountIdSchema = z.string().uuid();
 export const listAccountsSchema = z
@@ -44,6 +55,7 @@ export const listAccountsSchema = z
     nature: z.nativeEnum(account_nature).optional(),
     archived: z.enum(["true", "false"]).optional(),
     favorite: z.enum(["true", "false"]).optional(),
+    excludeCreditCards: z.enum(["true", "false"]).optional(),
     currency: z
       .string()
       .regex(/^[A-Z]{3}$/)

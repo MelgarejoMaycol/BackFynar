@@ -89,10 +89,13 @@ export const update = execute(async (req, res) => {
   });
 });
 export const cancel = execute(async (req, res) => {
-  await transactionsService.cancel(
-    req.workspace!.workspaceId,
-    id(req),
-    parse(cancelTransactionSchema, req.body).version,
-  );
-  res.status(204).send();
+  res.status(200).json({
+    success: true,
+    data: await transactionsService.cancel(
+      req.workspace!.workspaceId,
+      req.auth!.userId,
+      id(req),
+      parse(cancelTransactionSchema, req.body).version,
+    ),
+  });
 });

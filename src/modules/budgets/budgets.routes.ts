@@ -3,6 +3,7 @@ import { requirePermission } from "../workspaces/workspace-context.js";
 import * as controller from "./budgets.controller.js";
 const router = Router({ mergeParams: true });
 router.get("/", requirePermission("budgets.read"), controller.list);
+router.get("/cycle-range", requirePermission("budgets.read"), controller.cycleRange);
 router.get("/:budgetId", requirePermission("budgets.read"), controller.get);
 router.post("/", requirePermission("budgets.write"), controller.create);
 router.patch("/:budgetId", requirePermission("budgets.write"), controller.update);

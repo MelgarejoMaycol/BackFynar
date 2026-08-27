@@ -66,8 +66,7 @@ export class GoogleOAuthService {
       where: { id: flow.id, stateConsumedAt: null, expiresAt: { gt: now } },
       data: { stateConsumedAt: now },
     });
-    if (consumed.count !== 1)
-      throw oauthError("State reutilizado", "GOOGLE_OAUTH_STATE_INVALID");
+    if (consumed.count !== 1) throw oauthError("State reutilizado", "GOOGLE_OAUTH_STATE_INVALID");
     return flow.id;
   }
 

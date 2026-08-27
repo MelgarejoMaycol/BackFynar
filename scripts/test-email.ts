@@ -7,11 +7,15 @@ if (process.env.NODE_ENV === "production")
 const recipient = process.argv[2];
 if (!recipient || !/^\S+@\S+\.\S+$/.test(recipient))
   throw new Error("Uso: npm run email:test -- correo@example.com");
+const appWebUrl = process.env.APP_WEB_URL;
+if (!appWebUrl) throw new Error("APP_WEB_URL debe configurarse explícitamente para email:test");
+const verificationUrl = new URL(process.env.EMAIL_VERIFICATION_PATH ?? "/verify-email", appWebUrl);
+verificationUrl.searchParams.set("token", `test-${randomUUID()}`);
 try {
   const delivery = await emailService.sendVerification({
     recipient,
     firstName: "Prueba",
-    verificationUrl: `${process.env.APP_WEB_URL ?? "http://localhost:5173"}/verify-email?token=test-${randomUUID()}`,
+    verificationUrl: verificationUrl.toString(),
     expiresInHours: 1,
   });
   console.log(

@@ -10,4 +10,5 @@ usersRouter.patch("/me", controller.updateProfile);
 usersRouter.patch("/me/avatar", receiveAvatar, controller.updateAvatar);
 usersRouter.get("/me/preferences", controller.getPreferences);
 usersRouter.patch("/me/preferences", controller.updatePreferences);
+usersRouter.delete("/me", controller.deleteAccount);
 export default usersRouter;

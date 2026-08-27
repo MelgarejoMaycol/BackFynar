@@ -7,7 +7,7 @@ services:
     autoDeployTrigger: commit
     buildCommand: npm ci --include=dev
     startCommand: npm start
-    healthCheckPath: /api/v1/health/live
+    healthCheckPath: /api/v1/health/ready
     envVars:
       - key: NODE_VERSION
         value: 22.22.0
@@ -19,9 +19,29 @@ services:
         sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true
+      - key: SENTRY_DSN
+        sync: false
       - key: CORS_ORIGINS
         value: http://localhost:5173,https://fynar.vercel.app
       - key: APP_WEB_URL
-        sync: false
+        value: https://fynar.vercel.app
       - key: EMAIL_PROVIDER
-        value: console
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_REPLY_TO
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        value: https://fynarback.onrender.com/api/v1/auth/google/callback

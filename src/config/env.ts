@@ -31,6 +31,10 @@ const schema = z.object({
     .regex(/^(false|loopback|[1-3])$/)
     .default("false"),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
+  SENTRY_DSN: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().url().optional(),
+  ),
   JWT_ACCESS_SECRET: z.string().min(32).default(DEVELOPMENT_JWT_SECRET),
   JWT_ISSUER: z.string().min(1).default("fynar-api"),
   JWT_AUDIENCE: z.string().min(1).default("fynar-clients"),
@@ -101,6 +105,18 @@ if (env.EMAIL_PROVIDER === "resend" && !env.RESEND_API_KEY)
   throw new Error("RESEND_API_KEY es obligatoria cuando EMAIL_PROVIDER=resend");
 if (env.EMAIL_PROVIDER === "brevo" && !env.BREVO_API_KEY)
   throw new Error("BREVO_API_KEY es obligatoria cuando EMAIL_PROVIDER=brevo");
+if (env.NODE_ENV === "production" && env.EMAIL_PROVIDER === "console")
+  throw new Error("EMAIL_PROVIDER=console no está permitido en producción");
+if (
+  env.NODE_ENV === "production" &&
+  (env.EMAIL_FROM.includes("example.invalid") || env.EMAIL_FROM.includes("your-verified-domain"))
+)
+  throw new Error("EMAIL_FROM debe usar un remitente real y verificado en producción");
+if (
+  env.NODE_ENV === "production" &&
+  ["localhost", "127.0.0.1"].includes(new URL(env.APP_WEB_URL).hostname)
+)
+  throw new Error("APP_WEB_URL debe apuntar al frontend público en producción");
 if (env.NODE_ENV === "production" && !env.DATABASE_URL)
   throw new Error("DATABASE_URL es obligatoria en producción");
 if (env.NODE_ENV === "development" && !env.DATABASE_URL && !env.ALLOW_DEGRADED_START) {
@@ -113,6 +129,17 @@ const cloudinaryValues = [
 ];
 if (cloudinaryValues.some(Boolean) && !cloudinaryValues.every(Boolean))
   throw new Error("Las tres credenciales de Cloudinary deben configurarse juntas");
+if (env.NODE_ENV === "production" && !cloudinaryValues.every(Boolean))
+  throw new Error("Cloudinary debe configurarse completamente en producción");
+const googleValues = [env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_CALLBACK_URL];
+if (googleValues.some(Boolean) && !googleValues.every(Boolean))
+  throw new Error("Las tres variables de Google OAuth deben configurarse juntas");
+if (
+  env.NODE_ENV === "production" &&
+  env.GOOGLE_CALLBACK_URL &&
+  ["localhost", "127.0.0.1"].includes(new URL(env.GOOGLE_CALLBACK_URL).hostname)
+)
+  throw new Error("GOOGLE_CALLBACK_URL debe ser pública en producción");
 export function requireDatabaseUrl() {
   if (!env.DATABASE_URL) throw new Error("DATABASE_URL es obligatoria para acceder a PostgreSQL");
 }

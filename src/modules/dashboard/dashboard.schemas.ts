@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const dashboardPeriodSchema = z.enum([
   "CURRENT_MONTH",
+  "MY_CYCLE",
   "PREVIOUS_MONTH",
   "LAST_7_DAYS",
   "LAST_30_DAYS",

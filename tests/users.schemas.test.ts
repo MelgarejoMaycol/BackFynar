@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  deleteAccountSchema,
   updatePreferencesSchema,
   updateProfileSchema,
 } from "../src/modules/users/users.schemas.js";
+
+describe("eliminación de cuenta", () => {
+  it("exige la frase exacta y no admite campos adicionales", () => {
+    expect(deleteAccountSchema.safeParse({ confirmation: "ELIMINAR" }).success).toBe(true);
+    expect(deleteAccountSchema.safeParse({ confirmation: "eliminar" }).success).toBe(false);
+    expect(deleteAccountSchema.safeParse({ confirmation: "ELIMINAR", extra: true }).success).toBe(
+      false,
+    );
+  });
+});
 
 describe("schemas de perfil", () => {
   it("acepta Unicode, trim y actualizacion parcial", () => {

@@ -64,21 +64,33 @@ export class EmailProviderError extends Error {
 export class BrevoEmailService implements EmailService {
   constructor(private readonly apiKey: string) {}
   private async send(recipient: string, subject: string, htmlContent: string) {
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "api-key": this.apiKey,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify({
-        sender: sender(),
-        to: [{ email: recipient }],
-        subject,
-        htmlContent,
-        ...(env.EMAIL_REPLY_TO ? { replyTo: { email: env.EMAIL_REPLY_TO } } : {}),
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": this.apiKey,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({
+          sender: sender(),
+          to: [{ email: recipient }],
+          subject,
+          htmlContent,
+          ...(env.EMAIL_REPLY_TO ? { replyTo: { email: env.EMAIL_REPLY_TO } } : {}),
+        }),
+      });
+    } catch (error: unknown) {
+      throw new EmailProviderError(
+        "brevo",
+        0,
+        error instanceof Error && "code" in error && typeof error.code === "string"
+          ? error.code
+          : "NETWORK_ERROR",
+        error instanceof Error ? error.message : "Brevo request failed",
+      );
+    }
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
       throw new EmailProviderError("brevo", response.status, body.code, body.message);

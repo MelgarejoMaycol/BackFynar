@@ -169,7 +169,7 @@ model DebtInstallment {
   updatedAt         DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
   debts             Debt               @relation(fields: [workspaceId, debtId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
   debtPayments      DebtPayment[]
-  financialEvents   FinancialEvent[]
+  financialEvent    FinancialEvent?
 
   @@unique([debtId, installmentNumber])
   @@unique([workspaceId, debtId, id])
@@ -222,6 +222,7 @@ model Debt {
   interestRateBasis   interest_rate_basis  @default(EFFECTIVE_ANNUAL) @map("interest_rate_basis")
   interestType        interest_type        @default(FIXED) @map("interest_type")
   termMonths          Int?                 @map("term_months")
+  paymentFrequency    debt_payment_frequency @default(MONTHLY) @map("payment_frequency")
   installmentAmount   Decimal?             @map("installment_amount") @db.Decimal(18, 2)
   disbursementDate    DateTime?            @map("disbursement_date") @db.Date
   firstPaymentDate    DateTime?            @map("first_payment_date") @db.Date
@@ -296,6 +297,8 @@ model FinancialAccount {
   creditLimit                                                     Decimal?                 @map("credit_limit") @db.Decimal(18, 2)
   billingDay                                                      Int?                     @map("billing_day") @db.SmallInt
   paymentDueDay                                                   Int?                     @map("payment_due_day") @db.SmallInt
+  referencePeriodicRate                                           Decimal?                 @map("reference_periodic_rate") @db.Decimal(10, 7)
+  referenceRateSource                                             String?                  @map("reference_rate_source") @db.VarChar(20)
   color                                                           String?                  @db.VarChar(20)
   icon                                                            String?                  @db.VarChar(80)
   isFavorite                                                      Boolean                  @default(false) @map("is_favorite")
@@ -315,8 +318,10 @@ model FinancialAccount {
   obligationOccurrencesPaidFrom                                   ObligationOccurrence[]   @relation("obligation_occurrence_payment_account")
   cardPurchases                                                   CardPurchase[]
   cardStatements                                                  CardStatement[]
+  cardPaymentExpectations                                        CardPaymentExpectation[]
+  cashAdvancesFrom                                                CardCashAdvance[]        @relation("card_cash_advance_card")
+  cashAdvancesTo                                                  CardCashAdvance[]        @relation("card_cash_advance_destination")
 
-  @@unique([workspaceId, name])
   @@unique([workspaceId, id])
   @@map("financial_accounts")
 }
@@ -337,6 +342,9 @@ model FinancialEvent {
   relatedDebtId            String?              @map("related_debt_id") @db.Uuid
   relatedDebtInstallmentId String?              @map("related_debt_installment_id") @db.Uuid
   relatedObligationId      String?              @map("related_obligation_id") @db.Uuid
+  relatedObligationOccurrenceId String?         @map("related_obligation_occurrence_id") @db.Uuid
+  relatedCardStatementId   String?               @map("related_card_statement_id") @db.Uuid
+  relatedCardPaymentExpectationId String?         @map("related_card_payment_expectation_id") @db.Uuid
   relatedGoalId            String?              @map("related_goal_id") @db.Uuid
   isCompleted              Boolean              @default(false) @map("is_completed")
   createdAt                DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -345,11 +353,18 @@ model FinancialEvent {
   debts                    Debt?                @relation(fields: [workspaceId, relatedDebtId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
   debtInstallments         DebtInstallment?     @relation(fields: [workspaceId, relatedDebtId, relatedDebtInstallmentId], references: [workspaceId, debtId, id], onDelete: Cascade, onUpdate: NoAction)
   recurringObligations     RecurringObligation? @relation(fields: [workspaceId, relatedObligationId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  obligationOccurrence     ObligationOccurrence? @relation(fields: [workspaceId, relatedObligationOccurrenceId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  cardStatement            CardStatement?        @relation(fields: [workspaceId, relatedCardStatementId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  cardPaymentExpectation   CardPaymentExpectation? @relation(fields: [workspaceId, relatedCardPaymentExpectationId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
   savingsGoals             SavingsGoal?         @relation(fields: [relatedGoalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   transactions             Transaction?         @relation(fields: [relatedTransactionId], references: [id], onUpdate: NoAction)
   workspaces               Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspaceId, startsAt], map: "idx_events_workspace_start")
+  @@unique([workspaceId, relatedDebtId, relatedDebtInstallmentId])
+  @@unique([workspaceId, relatedObligationOccurrenceId])
+  @@unique([workspaceId, relatedCardStatementId])
+  @@unique([workspaceId, relatedCardPaymentExpectationId])
   @@map("financial_events")
 }
 
@@ -535,7 +550,9 @@ model ObligationOccurrence {
   obligation       RecurringObligation @relation(fields: [workspaceId, obligationId], references: [workspaceId, id], onDelete: Cascade)
   paymentAccount   FinancialAccount?   @relation("obligation_occurrence_payment_account", fields: [workspaceId, paymentAccountId], references: [workspaceId, id])
   transaction      Transaction?        @relation(fields: [workspaceId, transactionId], references: [workspaceId, id])
+  financialEvent   FinancialEvent?
 
+  @@unique([workspaceId, id])
   @@unique([workspaceId, obligationId, dueDate])
   @@unique([workspaceId, transactionId])
   @@index([workspaceId, status, dueDate])
@@ -549,6 +566,7 @@ model CardPurchase {
   transactionId      String                    @unique @map("transaction_id") @db.Uuid
   installmentCount   Int                       @default(1) @map("installment_count")
   periodicRate       Decimal                   @default(0) @map("periodic_rate") @db.Decimal(10, 7)
+  rateSource         String                    @default("ESTIMATED") @map("rate_source") @db.VarChar(20)
   outstandingBalance Decimal                   @map("outstanding_balance") @db.Decimal(18, 2)
   createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
   cardAccount        FinancialAccount          @relation(fields: [workspaceId, cardAccountId], references: [workspaceId, id])
@@ -597,10 +615,59 @@ model CardStatement {
   createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
   cardAccount       FinancialAccount      @relation(fields: [workspaceId, cardAccountId], references: [workspaceId, id])
+  financialEvent    FinancialEvent?
 
+  @@unique([workspaceId, id])
   @@unique([workspaceId, cardAccountId, periodStart, periodEnd])
   @@index([workspaceId, status, dueDate])
   @@map("card_statements")
+}
+
+model CardPaymentExpectation {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String                @map("workspace_id") @db.Uuid
+  cardAccountId        String                @map("card_account_id") @db.Uuid
+  amount               Decimal               @db.Decimal(18, 2)
+  dueDate              DateTime              @map("due_date") @db.Date
+  minimumPayment       Decimal?              @map("minimum_payment") @db.Decimal(18, 2)
+  reportedTotalBalance Decimal?              @map("reported_total_balance") @db.Decimal(18, 2)
+  paidAmount           Decimal               @default(0) @map("paid_amount") @db.Decimal(18, 2)
+  status               installment_status    @default(PENDING)
+  createdBy            String                @map("created_by") @db.Uuid
+  supersededAt         DateTime?             @map("superseded_at") @db.Timestamptz(6)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  cardAccount          FinancialAccount      @relation(fields: [workspaceId, cardAccountId], references: [workspaceId, id])
+  creator              User                  @relation(fields: [createdBy], references: [id])
+  financialEvent       FinancialEvent?
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, cardAccountId, status, dueDate], map: "idx_card_payment_expectations_active")
+  @@map("card_payment_expectations")
+}
+
+model CardCashAdvance {
+  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String           @map("workspace_id") @db.Uuid
+  cardAccountId        String           @map("card_account_id") @db.Uuid
+  destinationAccountId String           @map("destination_account_id") @db.Uuid
+  transactionId        String           @unique @map("transaction_id") @db.Uuid
+  amount               Decimal          @db.Decimal(18, 2)
+  feeAmount            Decimal          @default(0) @map("fee_amount") @db.Decimal(18, 2)
+  periodicRate         Decimal?         @map("periodic_rate") @db.Decimal(10, 7)
+  rateSource            String           @default("ESTIMATED") @map("rate_source") @db.VarChar(20)
+  installmentCount     Int?             @map("installment_count")
+  notes                String?
+  occurredAt           DateTime         @map("occurred_at") @db.Timestamptz(6)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  cardAccount          FinancialAccount @relation("card_cash_advance_card", fields: [workspaceId, cardAccountId], references: [workspaceId, id])
+  destinationAccount   FinancialAccount @relation("card_cash_advance_destination", fields: [workspaceId, destinationAccountId], references: [workspaceId, id])
+  transaction          Transaction      @relation(fields: [workspaceId, transactionId], references: [workspaceId, id])
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, transactionId])
+  @@index([workspaceId, cardAccountId, occurredAt(sort: Desc)])
+  @@map("card_cash_advances")
 }
 
 model RefreshToken {
@@ -843,6 +910,7 @@ model Transaction {
   workspaces                                                           Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   obligationOccurrence                                                 ObligationOccurrence?
   cardPurchase                                                         CardPurchase?
+  cardCashAdvance                                                      CardCashAdvance?
 
   @@unique([workspaceId, id])
   @@map("transactions")
@@ -858,6 +926,7 @@ model UserPreference {
   theme              String     @default("LIGHT") @db.VarChar(20)
   startScreen        String     @default("DASHBOARD") @map("start_screen") @db.VarChar(50)
   dashboardLayout    Json       @default("{}") @map("dashboard_layout")
+  financialCycleStartDay Int?   @map("financial_cycle_start_day") @db.SmallInt
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
   workspaces         Workspace? @relation(fields: [defaultWorkspaceId], references: [id], onUpdate: NoAction)
@@ -895,6 +964,7 @@ model User {
   refreshTokens                                    RefreshToken[]
   transactionAttachments                           TransactionAttachment[]
   transactions                                     Transaction[]
+  cardPaymentExpectations                          CardPaymentExpectation[]
   userPreferences                                  UserPreference?
   workspaceMembersWorkspaceMembersInvitedByTousers WorkspaceMember[]        @relation("workspace_members_invited_byTousers")
   workspaceMembersWorkspaceMembersUserIdTousers    WorkspaceMember[]        @relation("workspace_members_user_idTousers")
@@ -1109,6 +1179,13 @@ enum recurrence_frequency {
   WEEKLY
   MONTHLY
   YEARLY
+}
+
+enum debt_payment_frequency {
+  WEEKLY
+  MONTHLY
+  BIMONTHLY
+  SEMIANNUAL
 }
 
 enum transaction_status {

@@ -51,7 +51,11 @@ export const updatePreferencesSchema = nonEmptyPatch({
   theme: z.enum(["LIGHT", "DARK", "SYSTEM"]),
   startScreen: z.enum(["DASHBOARD", "TRANSACTIONS", "BUDGETS", "DEBTS"]),
   dashboardLayout,
+  financialCycleStartDay: z.union([z.number().int().min(1).max(28), z.null()]),
 });
+
+export const deleteAccountSchema = z.object({ confirmation: z.literal("ELIMINAR") }).strict();
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>;
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;

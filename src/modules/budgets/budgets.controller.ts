@@ -40,6 +40,15 @@ export const get = execute(async (req, res) => {
     ),
   });
 });
+export const cycleRange = execute(async (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: await budgetsService.cycleRange(
+      req.auth!.userId,
+      req.workspace!.workspace.timezone,
+    ),
+  });
+});
 export const create = execute(async (req, res) => {
   res.status(201).json({
     success: true,
@@ -62,8 +71,10 @@ export const update = execute(async (req, res) => {
   });
 });
 export const archive = execute(async (req, res) => {
-  await budgetsService.archive(req.workspace!.workspaceId, id(req));
-  res.status(204).send();
+  res.json({
+    success: true,
+    data: await budgetsService.archive(req.workspace!.workspaceId, req.auth!.userId, id(req)),
+  });
 });
 export const restore = execute(async (req, res) => {
   res.status(200).json({

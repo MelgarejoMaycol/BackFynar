@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import app from "../../src/app.js";
 import { prisma } from "../../src/database/prisma.js";
+import { registerVerified } from "./helpers/register-verified.js";
 
 const suffix = randomUUID().replaceAll("-", "");
 const password = "Phase four secure password 1!";
@@ -40,20 +41,12 @@ describe.sequential("Fase 4 categorías reales", () => {
 
   it("prepara dos workspaces aislados", async () => {
     for (const actor of actors) {
-      const response = await request(app)
-        .post("/api/v1/auth/register")
-        .send({ email: actor.email, password, firstName: "Phase4", acceptedTerms: true });
-      expect(response.status).toBe(201);
-      actor.id = response.body.data.user.id;
-      await prisma.user.update({ where: { id: actor.id }, data: { isEmailVerified: true } });
-      const login = await request(app).post("/api/v1/auth/login").send({ email: actor.email, password });
+      const { user, workspace, login } = await registerVerified({
+        email: actor.email, password, firstName: "Phase4",
+      });
+      actor.id = user.id;
       actor.access = login.body.data.tokens.accessToken;
-      actor.workspaceId = (
-        await prisma.workspace.findFirstOrThrow({
-          where: { ownerUserId: actor.id },
-          select: { id: true },
-        })
-      ).id;
+      actor.workspaceId = workspace.id;
     }
   }, 60_000);
 
@@ -209,21 +202,51 @@ describe.sequential("Fase 4 categorías reales", () => {
   }, 30_000);
 
   it("archiva, reserva el nombre y restaura sin borrar físicamente", async () => {
+    const university = await request(app)
+      .post(base(0))
+      .set(auth(actors[0]!.access))
+      .send(categoryPayload("Universidad", { icon: "graduation-cap", color: "#6B46C1" }));
+    expect(university.status).toBe(201);
+    const universityId = university.body.data.id as string;
+    const beforeArchive = await prisma.category.findUniqueOrThrow({ where: { id: universityId } });
+    const ordered = await request(app).get(base(0)).set(auth(actors[0]!.access));
+    const universityIndex = ordered.body.data.findIndex((item: { id: string }) => item.id === universityId);
+    const olderCustomIndex = ordered.body.data.findIndex((item: { id: string }) => item.id === parentA);
+    const firstSystemIndex = ordered.body.data.findIndex((item: { isSystem: boolean }) => item.isSystem);
+    expect(universityIndex).toBeLessThan(olderCustomIndex);
+    expect(olderCustomIndex).toBeLessThan(firstSystemIndex);
+
+    expect((await request(app).delete(`${base(0)}/${universityId}`).set(auth(actors[0]!.access))).status).toBe(200);
+    const standaloneArchived = await prisma.category.findUniqueOrThrow({ where: { id: universityId } });
+    expect(standaloneArchived).toMatchObject({
+      id: universityId,
+      isActive: false,
+      icon: "graduation-cap",
+      color: "#6B46C1",
+      createdAt: beforeArchive.createdAt,
+    });
+    expect(standaloneArchived.deletedAt).toBeInstanceOf(Date);
+    const standaloneRestored = await request(app)
+      .post(`${base(0)}/${universityId}/restore`)
+      .set(auth(actors[0]!.access));
+    expect(standaloneRestored.status).toBe(200);
+    expect(standaloneRestored.body.data).toMatchObject({
+      id: universityId,
+      name: "Universidad",
+      icon: "graduation-cap",
+      color: "#6B46C1",
+      isActive: true,
+      createdAt: beforeArchive.createdAt.toISOString(),
+    });
+
     expect(
       (
         await request(app)
           .delete(`${base(0)}/${parentA}`)
           .set(auth(actors[0]!.access))
       ).status,
-    ).toBe(409);
-    expect(
-      (
-        await request(app)
-          .delete(`${base(0)}/${childA}`)
-          .set(auth(actors[0]!.access))
-      ).status,
-    ).toBe(204);
-    const archived = await prisma.category.findUniqueOrThrow({ where: { id: childA } });
+    ).toBe(200);
+    const archived = await prisma.category.findUniqueOrThrow({ where: { id: parentA } });
     expect(archived.deletedAt).toBeInstanceOf(Date);
     expect(archived.isActive).toBe(false);
     const duplicate = await request(app)
@@ -234,16 +257,16 @@ describe.sequential("Fase 4 categorías reales", () => {
     const archivedList = await request(app)
       .get(`${base(0)}?status=ARCHIVED&scope=CUSTOM`)
       .set(auth(actors[0]!.access));
-    expect(archivedList.body.data.map((item: { id: string }) => item.id)).toContain(childA);
+    expect(archivedList.body.data.map((item: { id: string }) => item.id)).toContain(parentA);
     const restored = await request(app)
-      .post(`${base(0)}/${childA}/restore`)
+      .post(`${base(0)}/${parentA}/restore`)
       .set(auth(actors[0]!.access));
     expect(restored.status).toBe(200);
-    expect(restored.body.data).toMatchObject({ isActive: true, name: "Restaurantes" });
+    expect(restored.body.data).toMatchObject({ isActive: true });
     expect(
       (
         await request(app)
-          .post(`${base(0)}/${childA}/restore`)
+          .post(`${base(0)}/${parentA}/restore`)
           .set(auth(actors[0]!.access))
       ).status,
     ).toBe(200);

@@ -64,13 +64,31 @@ export class TransactionsRepository {
           }
         : {}),
     };
+    let cursor: { occurredAt: Date; createdAt: Date; id: string } | undefined;
+    if (filters.cursor) {
+      try {
+        const value = JSON.parse(Buffer.from(filters.cursor, "base64url").toString("utf8"));
+        cursor = { occurredAt: new Date(value.occurredAt), createdAt: new Date(value.createdAt), id: value.id };
+        if (!cursor.id || Number.isNaN(cursor.occurredAt.valueOf()) || Number.isNaN(cursor.createdAt.valueOf()))
+          throw new Error("invalid cursor");
+      } catch {
+        cursor = undefined;
+      }
+    }
+    const cursorWhere: Prisma.TransactionWhereInput = cursor
+      ? { OR: [
+          { occurredAt: { lt: cursor.occurredAt } },
+          { occurredAt: cursor.occurredAt, createdAt: { lt: cursor.createdAt } },
+          { occurredAt: cursor.occurredAt, createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ] }
+      : {};
     return Promise.all([
       this.database.transaction.findMany({
-        where,
+        where: { AND: [where, cursorWhere] },
         select: transactionSelect,
-        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-        skip: (filters.page - 1) * filters.limit,
-        take: filters.limit,
+        orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        ...(filters.page && !filters.cursor ? { skip: (filters.page - 1) * filters.limit } : {}),
+        take: filters.cursor || !filters.page ? filters.limit + 1 : filters.limit,
       }),
       this.database.transaction.count({ where }),
     ]);

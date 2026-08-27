@@ -32,9 +32,23 @@
     "prisma:seed": "prisma db seed",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:test": "tsx scripts/run-test-database-command.ts migrate deploy",
+    "prisma:seed:test": "tsx scripts/run-test-database-command.ts db seed",
     "email:test": "tsx scripts/test-email.ts",
     "email:status": "tsx scripts/check-email-delivery.ts",
-    "email:config": "tsx scripts/check-email-configuration.ts"
+    "email:config": "tsx scripts/check-email-configuration.ts",
+    "email:check": "tsx scripts/check-email-configuration.ts",
+    "qa:db:up": "docker compose -f docker-compose.qa.yml up -d --wait",
+    "qa:db:down": "docker compose -f docker-compose.qa.yml down",
+    "qa:db:reset": "docker compose -f docker-compose.qa.yml down -v && docker compose -f docker-compose.qa.yml up -d --wait",
+    "qa:migrate": "tsx scripts/run-local-qa.ts prisma migrate deploy",
+    "qa:prisma:validate": "tsx scripts/run-local-qa.ts prisma validate",
+    "qa:prisma:generate": "tsx scripts/run-local-qa.ts prisma generate",
+    "qa:db:verify": "tsx scripts/run-local-qa.ts verify",
+    "qa:e2e:seed": "tsx scripts/run-local-qa.ts e2eSeed",
+    "qa:server": "tsx scripts/run-local-qa.ts server",
+    "qa:seed": "tsx scripts/run-local-qa.ts seed",
+    "qa:integration": "npm run qa:seed && tsx scripts/run-local-qa.ts integration"
   },
   "keywords": [
     "node",
@@ -46,6 +60,7 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "6.19.3",
+    "@sentry/node": "^10.70.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -61,9 +76,9 @@
     "helmet": "^8.3.0",
     "jose": "^6.2.8",
     "multer": "^2.2.0",
+    "prisma": "^6.19.0",
     "resend": "^6.18.1",
     "sharp": "^0.35.3",
-    "prisma": "^6.19.0",
     "tsx": "^4.23.5",
     "typescript": "^6.0.3",
     "zod": "^4.4.3"

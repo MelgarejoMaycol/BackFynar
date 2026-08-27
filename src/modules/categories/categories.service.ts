@@ -74,7 +74,15 @@ export class CategoriesService {
   constructor(private readonly repository: CategoriesRepository = categoriesRepository) {}
 
   async list(workspaceId: string, filters: ListCategoriesInput) {
-    return (await this.repository.list(workspaceId, filters)).map(toPublicCategory);
+    const categories = (await this.repository.list(workspaceId, filters)).map(toPublicCategory);
+    const custom = categories
+      .filter((category) => !category.isSystem)
+      .sort(
+        (a, b) =>
+          Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.id.localeCompare(a.id),
+      );
+    const system = categories.filter((category) => category.isSystem);
+    return [...custom, ...system];
   }
 
   async get(workspaceId: string, categoryId: string) {
@@ -156,24 +164,13 @@ export class CategoriesService {
     }
   }
 
-  async archive(workspaceId: string, categoryId: string): Promise<void> {
-    await this.repository.transaction(async (tx) => {
-      const current = await this.repository.findVisible(workspaceId, categoryId, tx);
-      if (!current) throw categoryNotFound();
-      if (current.isSystem || current.workspaceId === null) throw systemCategoryDenied();
-      if (current.deletedAt || !current.isActive) return;
-      if ((await this.repository.countActiveChildren(workspaceId, categoryId, tx)) > 0)
-        throw new ConflictError(
-          "Categoría padre con hijos activos",
-          "Archive o reasigne las subcategorías activas antes de archivar esta categoría",
-        );
-      await this.repository.update(
-        workspaceId,
-        categoryId,
-        { isActive: false, deletedAt: new Date() },
-        tx,
-      );
-    });
+  async archive(workspaceId: string, userId: string, categoryId: string) {
+    const current = await this.repository.findVisible(workspaceId, categoryId);
+    if (!current) throw categoryNotFound();
+    if (current.isSystem || current.workspaceId === null) throw systemCategoryDenied();
+    const result = await this.repository.archive(workspaceId, userId, categoryId);
+    if (!result) throw categoryNotFound();
+    return { mode: result.mode, dependencies: result.dependencies };
   }
 
   async restore(workspaceId: string, categoryId: string) {

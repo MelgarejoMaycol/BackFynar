@@ -7,7 +7,7 @@ import {
   generateAmortizationSchedule,
   roundMoney,
   roundRate,
-  toEffectiveMonthly,
+  toEffectivePeriodic,
 } from "./credit-math.js";
 import { solvePeriodicRate } from "./credit-rate-solver.js";
 import type {
@@ -126,6 +126,7 @@ export function estimateCredit(input: Readonly<CreditEstimationInput>): CreditEs
   validDate(input.disbursementDate);
   validDate(input.currentDate);
   const suppliedEndDate = validDate(input.estimatedEndDate);
+  const paymentFrequency = input.paymentFrequency ?? "MONTHLY";
 
   if (totalValue === 0 || (paidValue !== null && totalValue !== null && paidValue > totalValue))
     throw new CreditMathError("INVALID_RELATIONSHIP");
@@ -151,17 +152,20 @@ export function estimateCredit(input: Readonly<CreditEstimationInput>): CreditEs
   let estimatedEndDate = suppliedEndDate
     ? provided(suppliedEndDate, "estimatedEndDate")
     : unknown<Date>();
+  const scheduleInstallments = () => remainingInstallments.value ?? totalInstallments.value;
+  const schedulePrincipal = () =>
+    remainingInstallments.value !== null && balanceValue ? balanceValue : principalValue;
 
   if (input.periodicRate !== undefined)
     periodicRate = provided(roundRate(input.periodicRate), "periodicRate");
   else if (input.interestRate !== undefined && input.interestRateBasis !== undefined) {
     periodicRate = derived(
-      toEffectiveMonthly(input.interestRate, input.interestRateBasis),
+      toEffectivePeriodic(input.interestRate, input.interestRateBasis, paymentFrequency),
       "CALCULATED",
       "EXACT",
       ["periodicRate"],
     );
-    addUnique(assumptions, "MONTHLY_PAYMENT_FREQUENCY");
+    addUnique(assumptions, `PAYMENT_FREQUENCY_${paymentFrequency}`);
   } else if (input.interestRate !== undefined || input.interestRateBasis !== undefined) {
     throw new CreditMathError("INVALID_RELATIONSHIP");
   }
@@ -173,17 +177,26 @@ export function estimateCredit(input: Readonly<CreditEstimationInput>): CreditEs
     ]);
   }
 
-  if (periodicRate.value === null && principalValue && paymentValue && totalValue) {
+  if (
+    periodicRate.value === null &&
+    schedulePrincipal() &&
+    paymentValue &&
+    scheduleInstallments()
+  ) {
     try {
       periodicRate = derived(
         solvePeriodicRate({
-          principal: principalValue,
+          principal: schedulePrincipal()!,
           paymentAmount: paymentValue,
-          numberOfInstallments: totalValue,
+          numberOfInstallments: scheduleInstallments()!,
         }),
         "ESTIMATED",
         "HIGH_ESTIMATE",
-        ["originalPrincipal", "paymentAmount", "totalInstallments"],
+        [
+          balanceValue ? "currentBalance" : "originalPrincipal",
+          "paymentAmount",
+          remainingInstallments.value !== null ? "remainingInstallments" : "totalInstallments",
+        ],
       );
       addUnique(assumptions, "FIXED_PAYMENT_AMORTIZATION");
       addUnique(assumptions, "CONSTANT_INTEREST_RATE");
@@ -223,11 +236,11 @@ export function estimateCredit(input: Readonly<CreditEstimationInput>): CreditEs
   }
 
   let paymentComparison: PaymentComparison | null = null;
-  if (principalValue && periodicRate.value && totalInstallments.value) {
+  if (schedulePrincipal() && periodicRate.value && scheduleInstallments()) {
     const calculatedPayment = calculateFixedPayment({
-      principal: principalValue,
+      principal: schedulePrincipal()!,
       periodicRate: periodicRate.value,
-      numberOfInstallments: totalInstallments.value,
+      numberOfInstallments: scheduleInstallments()!,
     });
     if (paymentValue) {
       paymentComparison = comparePayment(paymentValue, calculatedPayment);
@@ -244,32 +257,40 @@ export function estimateCredit(input: Readonly<CreditEstimationInput>): CreditEs
     }
   }
 
-  if (estimatedEndDate.value === null && firstDate && totalInstallments.value) {
+  if (estimatedEndDate.value === null && firstDate && scheduleInstallments()) {
     estimatedEndDate = derived(
-      calculateEstimatedEndDate(firstDate, totalInstallments.value),
-      totalInstallments.source === "ESTIMATED" ? "ESTIMATED" : "CALCULATED",
-      totalInstallments.source === "ESTIMATED" ? "HIGH_ESTIMATE" : "EXACT",
-      ["firstPaymentDate", "totalInstallments"],
+      calculateEstimatedEndDate(firstDate, scheduleInstallments()!, paymentFrequency),
+      remainingInstallments.source === "ESTIMATED" || totalInstallments.source === "ESTIMATED"
+        ? "ESTIMATED"
+        : "CALCULATED",
+      remainingInstallments.source === "ESTIMATED" || totalInstallments.source === "ESTIMATED"
+        ? "HIGH_ESTIMATE"
+        : "EXACT",
+      [
+        "firstPaymentDate",
+        remainingInstallments.value !== null ? "remainingInstallments" : "totalInstallments",
+      ],
     );
   }
 
   let estimatedSchedule = null;
   if (
-    principalValue &&
+    schedulePrincipal() &&
     periodicRate.value &&
-    totalInstallments.value &&
+    scheduleInstallments() &&
     firstDate &&
     !issues.includes("INCONSISTENT_INPUT") &&
     !issues.includes("PAYMENT_TOO_LOW")
   ) {
     estimatedSchedule = generateAmortizationSchedule({
-      principal: principalValue,
+      principal: schedulePrincipal()!,
       periodicRate: periodicRate.value,
-      numberOfInstallments: totalInstallments.value,
+      numberOfInstallments: scheduleInstallments()!,
       firstPaymentDate: firstDate,
+      paymentFrequency,
       ...(paymentValue ? { paymentAmount: paymentValue } : {}),
     });
-    addUnique(assumptions, "MONTHLY_PAYMENT_FREQUENCY");
+    addUnique(assumptions, `PAYMENT_FREQUENCY_${paymentFrequency}`);
     addUnique(assumptions, "FIXED_PAYMENT_AMORTIZATION");
     addUnique(assumptions, "CONSTANT_INTEREST_RATE");
     addUnique(assumptions, "NO_UNMODELED_FEES_OR_INSURANCE");

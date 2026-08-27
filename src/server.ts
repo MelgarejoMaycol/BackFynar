@@ -3,6 +3,7 @@ import { env } from "./config/env.js";
 import { prisma } from "./database/prisma.js";
 import { logger } from "./common/logging/logger.js";
 import { markApplicationShuttingDown } from "./common/lifecycle/application-lifecycle.js";
+import { captureServerException } from "./common/observability/sentry.js";
 
 const PORT = env.PORT;
 
@@ -69,10 +70,12 @@ process.on("unhandledRejection", (reason) => {
   logger.error("Promesa rechazada no controlada", {
     errorName: reason instanceof Error ? reason.name : "Unknown",
   });
+  captureServerException(reason);
   shutdown("unhandledRejection", 1);
 });
 process.on("uncaughtException", (error) => {
   logger.error("Excepción no controlada", errorContext(error));
+  captureServerException(error);
   shutdown("uncaughtException", 1);
 });
 if (![env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_CALLBACK_URL].every(Boolean)) {

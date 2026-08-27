@@ -19,8 +19,22 @@ const common = {
   notes: text(5_000),
   merchantName: text(150),
 };
-export const incomeSchema = z.object(common).strict();
-export const expenseSchema = z.object(common).strict();
+const cardPurchaseDetails = z
+  .object({
+    installmentCount: z.number().int().min(1).max(120).default(1),
+    periodicRate: z
+      .string()
+      .regex(/^\d{1,3}(?:\.\d{1,7})?$/)
+      .optional(),
+    firstDueDate: z.string().date().optional(),
+  })
+  .strict();
+export const incomeSchema = z
+  .object({ ...common, categoryId: z.string().uuid().optional() })
+  .strict();
+export const expenseSchema = z
+  .object({ ...common, cardPurchase: cardPurchaseDetails.optional() })
+  .strict();
 export const transferSchema = z
   .object({ ...common, destinationAccountId: z.string().uuid() })
   .strict()
@@ -47,6 +61,7 @@ export const updateTransactionSchema = z
     description: text(250),
     notes: text(5_000),
     merchantName: text(150),
+    cardPurchase: z.union([cardPurchaseDetails, z.null()]).optional(),
   })
   .strict();
 export const cancelTransactionSchema = z.object({ version: z.number().int().positive() }).strict();
@@ -63,8 +78,9 @@ export const listTransactionsSchema = z
     minAmount: transactionMoneySchema.optional(),
     maxAmount: transactionMoneySchema.optional(),
     search: z.string().trim().min(1).max(150).optional(),
-    page: z.coerce.number().int().min(1).max(10_000).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(25),
+    cursor: z.string().max(500).optional(),
+    page: z.coerce.number().int().min(1).max(10_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
   })
   .strict()
   .refine((v) => !v.dateFrom || !v.dateTo || v.dateFrom <= v.dateTo, "Rango de fechas inválido")
@@ -72,7 +88,7 @@ export const listTransactionsSchema = z
     (v) => !v.minAmount || !v.maxAmount || cents(v.minAmount) <= cents(v.maxAmount),
     "Rango de montos inválido",
   );
-export type MovementInput = z.infer<typeof incomeSchema>;
+export type MovementInput = z.infer<typeof expenseSchema> | z.infer<typeof incomeSchema>;
 export type TransferInput = z.infer<typeof transferSchema>;
 export type AdjustmentInput = z.infer<typeof adjustmentSchema>;
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 export type DecimalInput = Prisma.Decimal | string | number;
 export type InterestRateBasis =
   "EFFECTIVE_ANNUAL" | "NOMINAL_ANNUAL" | "EFFECTIVE_MONTHLY" | "NOMINAL_MONTHLY";
+export type PaymentFrequency = "WEEKLY" | "MONTHLY" | "BIMONTHLY" | "SEMIANNUAL";
 
 export interface FixedPaymentInput {
   principal: DecimalInput;
@@ -26,6 +27,7 @@ export interface InstallmentCalculation {
 
 export interface AmortizationScheduleInput extends FixedPaymentInput {
   firstPaymentDate: Date;
+  paymentFrequency?: PaymentFrequency;
   paymentAmount?: DecimalInput;
   insuranceAmount?: DecimalInput;
   feeAmount?: DecimalInput;

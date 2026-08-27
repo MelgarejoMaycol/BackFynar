@@ -62,12 +62,10 @@ export const resendVerification = execute(async (request, response) => {
     parse(resendVerificationSchema, request.body).email,
     metadata(request),
   );
-  response
-    .status(202)
-    .json({
-      success: true,
-      data: { message: "Si la cuenta requiere verificación, enviaremos un correo" },
-    });
+  response.status(202).json({
+    success: true,
+    data: { message: "Si la cuenta requiere verificación, enviaremos un correo" },
+  });
 });
 export const login = execute(async (request, response) => {
   const input = parse(loginSchema, request.body);
@@ -223,14 +221,24 @@ export const completeGoogleRegistration = execute(async (request, response) => {
 });
 export const requestEmailChange = execute(async (request, response) => {
   const input = parse(requestEmailChangeSchema, request.body);
-  response.status(202).json({ success: true, data: await authService.requestEmailChange(request.auth!.userId, input.newEmail, input.currentPassword, metadata(request)) });
+  response.status(202).json({
+    success: true,
+    data: await authService.requestEmailChange(
+      request.auth!.userId,
+      input.newEmail,
+      input.currentPassword,
+      metadata(request),
+    ),
+  });
 });
 export const confirmEmailChange = execute(async (request, response) => {
   await authService.confirmEmailChange(parse(confirmEmailChangeSchema, request.body).token);
   response.status(204).send();
 });
 export const getPendingEmailChange = execute(async (request, response) => {
-  response.status(200).json({ success: true, data: await authService.getPendingEmailChange(request.auth!.userId) });
+  response
+    .status(200)
+    .json({ success: true, data: await authService.getPendingEmailChange(request.auth!.userId) });
 });
 export const cancelEmailChange = execute(async (request, response) => {
   await authService.cancelEmailChange(request.auth!.userId);

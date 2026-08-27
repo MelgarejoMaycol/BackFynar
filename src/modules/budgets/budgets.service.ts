@@ -4,6 +4,9 @@ import { dateOnly, projectionDays } from "./budgets.dates.js";
 import type { BudgetRecord } from "./budgets.mapper.js";
 import { budgetsRepository, type BudgetsRepository } from "./budgets.repository.js";
 import type { CreateBudgetInput, ListBudgetsInput, UpdateBudgetInput } from "./budgets.schemas.js";
+import { recordDeletionAudit } from "../../common/audit/deletion-audit.js";
+import { buildDashboardPeriod } from "../dashboard/dashboard.period.js";
+import { dashboardRepository } from "../dashboard/dashboard.repository.js";
 
 const notFound = () =>
   new AppError("Presupuesto no encontrado", {
@@ -20,6 +23,14 @@ const isUniqueConflict = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 const decimal = (v: string) => new Prisma.Decimal(v);
 const fixed = (v: Prisma.Decimal) => v.toDecimalPlaces(2).toFixed(2);
+const localDateOnly = (value: Date, timezone: string) => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(value)
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
 export type BudgetStatus = "SAFE" | "WARNING" | "EXCEEDED";
 export const budgetStatus = (
   spent: Prisma.Decimal,
@@ -121,6 +132,25 @@ const validatePeriod = (period: budget_period, startsOn: string, endsOn: string)
 };
 export class BudgetsService {
   constructor(private readonly repository: BudgetsRepository = budgetsRepository) {}
+  async cycleRange(userId: string, timezone: string, now = new Date()) {
+    const startDay = await dashboardRepository.financialCycleStartDay(userId);
+    if (!startDay)
+      throw new ConflictError(
+        "Mi ciclo no está configurado",
+        "Configura Mi ciclo para utilizar este período.",
+      );
+    const period = buildDashboardPeriod(
+      { period: "MY_CYCLE", recentLimit: 1 },
+      timezone,
+      now,
+      startDay,
+    );
+    return {
+      startsOn: localDateOnly(period.start, timezone),
+      endsOn: localDateOnly(new Date(period.endExclusive.getTime() - 1), timezone),
+      financialCycleStartDay: startDay,
+    };
+  }
   private async validateAssociations(
     tx: Prisma.TransactionClient,
     workspaceId: string,
@@ -274,11 +304,24 @@ export class BudgetsService {
     }
     return this.get(workspaceId, id, timezone);
   }
-  async archive(workspaceId: string, id: string) {
-    const existing = await this.repository.find(workspaceId, id);
-    if (!existing) throw notFound();
-    if (existing.deletedAt) return;
-    if ((await this.repository.archive(workspaceId, id)).count !== 1) throw notFound();
+  async archive(workspaceId: string, userId: string, id: string) {
+    return this.repository.transaction(async (tx) => {
+      const existing = await this.repository.find(workspaceId, id, tx);
+      if (!existing || existing.deletedAt) throw notFound();
+      await recordDeletionAudit(tx, {
+        workspaceId,
+        userId,
+        entityType: "BUDGET",
+        entityId: id,
+        mode: "LOGICAL",
+        name: existing.name,
+      });
+      await tx.budget.update({
+        where: { id },
+        data: { isActive: false, deletedAt: new Date() },
+      });
+      return { mode: "LOGICAL" as const };
+    });
   }
   async restore(workspaceId: string, id: string, timezone: string) {
     await this.repository.transaction(async (tx) => {

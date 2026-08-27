@@ -24,6 +24,7 @@ export const preferenceSelect = {
   theme: true,
   startScreen: true,
   dashboardLayout: true,
+  financialCycleStartDay: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UserPreferenceSelect;
@@ -49,6 +50,31 @@ export class UsersRepository {
   findPreferences(userId: string) {
     return this.database.userPreference.findUnique({ where: { userId }, select: preferenceSelect });
   }
+  ensurePreferences(userId: string) {
+    return withTransactionRetry(() =>
+      this.database.$transaction(async (tx) => {
+        const existing = await tx.userPreference.findUnique({
+          where: { userId },
+          select: preferenceSelect,
+        });
+        if (existing) return existing;
+        const membership = await tx.workspaceMember.findFirst({
+          where: { userId, status: "ACTIVE" },
+          orderBy: { joinedAt: "asc" },
+          select: { workspaceId: true },
+        });
+        return tx.userPreference.upsert({
+          where: { userId },
+          create: {
+            userId,
+            ...(membership ? { defaultWorkspaceId: membership.workspaceId } : {}),
+          },
+          update: {},
+          select: preferenceSelect,
+        });
+      }),
+    );
+  }
   updatePreferences(userId: string, data: Prisma.UserPreferenceUpdateInput) {
     return this.database.userPreference.update({
       where: { userId },
@@ -70,6 +96,50 @@ export class UsersRepository {
             data,
             select: preferenceSelect,
           });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      ),
+    );
+  }
+
+  anonymizeAccount(userId: string) {
+    return withTransactionRetry(() =>
+      this.database.$transaction(
+        async (tx) => {
+          const user = await tx.user.findFirst({
+            where: { id: userId, isActive: true, deletedAt: null },
+            select: { id: true },
+          });
+          if (!user) return false;
+
+          const deletedAt = new Date();
+          await tx.auditLog.updateMany({
+            where: { entityType: "USER", entityId: userId },
+            data: { oldData: Prisma.JsonNull, newData: Prisma.JsonNull },
+          });
+          await tx.authIdentity.deleteMany({ where: { userId } });
+          await tx.refreshToken.deleteMany({ where: { userId } });
+          await tx.passwordResetToken.deleteMany({ where: { userId } });
+          await tx.emailVerificationToken.deleteMany({ where: { userId } });
+          await tx.emailChangeRequest.deleteMany({ where: { userId } });
+          await tx.deviceToken.deleteMany({ where: { userId } });
+          await tx.notification.deleteMany({ where: { userId } });
+          await tx.userPreference.deleteMany({ where: { userId } });
+          await tx.user.update({
+            where: { id: userId },
+            data: {
+              email: `deleted-${userId}@deleted.invalid`,
+              passwordHash: null,
+              firstName: "Cuenta eliminada",
+              lastName: null,
+              phone: null,
+              avatarUrl: null,
+              isEmailVerified: false,
+              isActive: false,
+              deletedAt,
+            },
+          });
+          return true;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       ),

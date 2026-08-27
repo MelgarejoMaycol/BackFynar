@@ -1,5 +1,9 @@
-import { AppError, NotFoundError, ValidationError } from "../../common/errors/app-error.js";
-import type { UpdatePreferencesInput, UpdateProfileInput } from "./users.schemas.js";
+import { NotFoundError, ValidationError } from "../../common/errors/app-error.js";
+import type {
+  DeleteAccountInput,
+  UpdatePreferencesInput,
+  UpdateProfileInput,
+} from "./users.schemas.js";
 import { usersRepository, type UsersRepository } from "./users.repository.js";
 import { optimizeAvatar, uploadAvatar } from "./avatar.service.js";
 
@@ -42,10 +46,7 @@ export class UsersService {
     return updated;
   }
   async getPreferences(userId: string) {
-    const preferences = await this.repository.findPreferences(userId);
-    if (!preferences)
-      throw new AppError("Preferencias de usuario ausentes", { code: "USER_PREFERENCES_MISSING" });
-    return preferences;
+    return this.repository.ensurePreferences(userId);
   }
   async updatePreferences(userId: string, input: UpdatePreferencesInput) {
     await this.getPreferences(userId);
@@ -64,10 +65,18 @@ export class UsersService {
       ...(input.dashboardLayout !== undefined
         ? { dashboardLayout: input.dashboardLayout as Prisma.InputJsonValue }
         : {}),
+      ...(input.financialCycleStartDay !== undefined
+        ? { financialCycleStartDay: input.financialCycleStartDay }
+        : {}),
     };
     return input.defaultWorkspaceId
       ? this.repository.updatePreferencesForWorkspace(userId, input.defaultWorkspaceId, data)
       : this.repository.updatePreferences(userId, data);
+  }
+
+  async deleteAccount(userId: string, _input: DeleteAccountInput) {
+    const deleted = await this.repository.anonymizeAccount(userId);
+    if (!deleted) throw new NotFoundError("Usuario activo no encontrado", "Perfil no encontrado");
   }
 }
 

@@ -1,0 +1,21 @@
+services:
+  postgres-qa:
+    image: postgres:17-alpine
+    container_name: fynar-postgres-qa
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fynar_test
+      POSTGRES_PASSWORD: fynar_test_password
+      POSTGRES_DB: fynar_test
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fynar_test -d fynar_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - fynar_qa_data:/var/lib/postgresql/data
+
+volumes:
+  fynar_qa_data:

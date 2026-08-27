@@ -56,8 +56,14 @@ export const update = execute(async (request, response) => {
   });
 });
 export const archive = execute(async (request, response) => {
-  await categoriesService.archive(request.workspace!.workspaceId, categoryId(request));
-  response.status(204).send();
+  response.status(200).json({
+    success: true,
+    data: await categoriesService.archive(
+      request.workspace!.workspaceId,
+      request.auth!.userId,
+      categoryId(request),
+    ),
+  });
 });
 export const restore = execute(async (request, response) => {
   response.status(200).json({

@@ -5,10 +5,11 @@ import { withTransactionRetry } from "../../database/transaction-retry.js";
 import { estimateCredit } from "./domain/credit-estimator.js";
 import {
   generateAmortizationSchedule,
-  toEffectiveMonthly,
+  toEffectivePeriodic,
   calculateFixedPayment,
   calculateNumberOfPeriods,
   calculateRemainingInterest,
+  effectivePeriodicToMonthly,
 } from "./domain/credit-math.js";
 import { publicDebt, debtInclude } from "./debts.mapper.js";
 import type {
@@ -19,6 +20,11 @@ import type {
   ReconciliationInput,
   UpdateDebtInput,
 } from "./debts.schemas.js";
+import {
+  debtInstallmentEventWhere,
+  syncFinancialEvent,
+} from "../liabilities/financial-event-sync.service.js";
+import { recordDeletionAudit } from "../../common/audit/deletion-audit.js";
 
 const D = (x: string | Prisma.Decimal) => new Prisma.Decimal(x);
 const date = (x: string | null | undefined) => (x ? new Date(`${x}T00:00:00.000Z`) : null);
@@ -56,6 +62,7 @@ export class DebtsService {
   constructor(private readonly db: PrismaClient = prisma) {}
   async create(workspaceId: string, userId: string, input: CreateDebtInput) {
     return txRetry(this.db, async (tx) => {
+      const paymentFrequency = input.paymentFrequency ?? "MONTHLY";
       if (input.liabilityAccountId) {
         const account = await tx.financialAccount.findFirst({
           where: {
@@ -74,7 +81,12 @@ export class DebtsService {
         ...(input.installmentAmount ? { paymentAmount: input.installmentAmount } : {}),
         ...(input.interestRate ? { interestRate: input.interestRate } : {}),
         ...(input.interestRateBasis ? { interestRateBasis: input.interestRateBasis } : {}),
-        ...(input.termMonths ? { totalInstallments: input.termMonths } : {}),
+        paymentFrequency,
+        ...(input.installmentCount
+          ? { remainingInstallments: input.installmentCount }
+          : input.termMonths
+            ? { totalInstallments: input.termMonths }
+            : {}),
         ...(date(input.disbursementDate)
           ? { disbursementDate: date(input.disbursementDate)! }
           : {}),
@@ -82,12 +94,19 @@ export class DebtsService {
           ? { firstPaymentDate: date(input.firstPaymentDate)! }
           : {}),
       });
-      const term = input.termMonths ?? estimation.totalInstallments.value;
+      const term =
+        input.installmentCount ??
+        input.termMonths ??
+        estimation.remainingInstallments.value ??
+        estimation.totalInstallments.value;
       const payment = input.installmentAmount
         ? D(input.installmentAmount)
         : estimation.paymentAmount.value;
       const first = date(input.firstPaymentDate);
       const end = estimation.estimatedEndDate.value;
+      const storedRate = input.interestRate
+        ? D(input.interestRate)
+        : effectivePeriodicToMonthly(estimation.periodicRate.value ?? 0, paymentFrequency);
       const debt = await tx.debt.create({
         data: {
           workspaceId,
@@ -97,11 +116,12 @@ export class DebtsService {
           currency: input.currency,
           originalAmount: D(input.originalAmount),
           currentBalance: D(input.currentBalance ?? input.originalAmount),
-          interestRate: D(input.interestRate ?? "0"),
-          interestRateBasis: input.interestRateBasis ?? "EFFECTIVE_ANNUAL",
+          interestRate: storedRate,
+          interestRateBasis: input.interestRateBasis ?? "EFFECTIVE_MONTHLY",
           interestType:
-            input.interestType ?? (D(input.interestRate ?? "0").isZero() ? "NONE" : "FIXED"),
+            input.interestType ?? (storedRate.isZero() ? "NONE" : "FIXED"),
           termMonths: term,
+          paymentFrequency,
           installmentAmount: payment,
           disbursementDate: date(input.disbursementDate),
           firstPaymentDate: first,
@@ -116,9 +136,13 @@ export class DebtsService {
               issues: estimation.issues,
               assumptions: estimation.assumptions,
               sources: {
+                originalAmount: "PROVIDED",
+                currentBalance: input.currentBalance ? "PROVIDED" : "CALCULATED",
                 payment: estimation.paymentAmount.source,
-                rate: estimation.periodicRate.source,
+                interestRate: input.interestRate ? "PROVIDED" : "UNKNOWN",
+                periodicRate: estimation.periodicRate.source,
                 term: estimation.totalInstallments.source,
+                paymentFrequency: input.paymentFrequency ? "PROVIDED" : "DEFAULT",
               },
             },
           },
@@ -189,6 +213,10 @@ export class DebtsService {
           : {}),
         ...(input.interestType !== undefined ? { interestType: input.interestType } : {}),
         ...(input.termMonths !== undefined ? { termMonths: input.termMonths } : {}),
+        ...(input.installmentCount !== undefined ? { termMonths: input.installmentCount } : {}),
+        ...(input.paymentFrequency !== undefined
+          ? { paymentFrequency: input.paymentFrequency }
+          : {}),
         ...(input.paymentDay !== undefined ? { paymentDay: input.paymentDay } : {}),
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
         ...(input.originalAmount ? { originalAmount: D(input.originalAmount) } : {}),
@@ -221,12 +249,51 @@ export class DebtsService {
   }
   async archive(workspaceId: string, userId: string, id: string) {
     return txRetry(this.db, async (tx) => {
-      const result = await tx.debt.updateMany({
+      const current = await tx.debt.findFirst({
         where: { id, workspaceId, deletedAt: null },
+        select: { id: true, name: true },
+      });
+      if (!current) throw missing();
+      const [payments, reconciliations] = await Promise.all([
+        tx.debtPayment.count({ where: { workspaceId, debtId: id } }),
+        tx.debtReconciliation.count({ where: { workspaceId, debtId: id } }),
+      ]);
+      const dependencies = { payments, reconciliations };
+      if (payments === 0) {
+        await recordDeletionAudit(tx, {
+          workspaceId,
+          userId,
+          entityType: "DEBT",
+          entityId: id,
+          mode: "PHYSICAL",
+          name: current.name,
+          dependencies,
+        });
+        await tx.debt.delete({ where: { id } });
+        return { mode: "PHYSICAL" as const, dependencies };
+      }
+      await tx.debt.update({
+        where: { id },
         data: { deletedAt: new Date(), status: "CANCELLED" },
       });
-      if (!result.count) throw missing();
-      await audit(tx, workspaceId, userId, id, "ARCHIVE");
+      await tx.debtInstallment.updateMany({
+        where: { workspaceId, debtId: id, status: { in: ["PENDING", "PARTIAL", "OVERDUE"] } },
+        data: { status: "CANCELLED" },
+      });
+      await tx.financialEvent.updateMany({
+        where: { workspaceId, relatedDebtId: id, isCompleted: false },
+        data: { isCompleted: true, updatedAt: new Date() },
+      });
+      await recordDeletionAudit(tx, {
+        workspaceId,
+        userId,
+        entityType: "DEBT",
+        entityId: id,
+        mode: "LOGICAL",
+        name: current.name,
+        dependencies,
+      });
+      return { mode: "LOGICAL" as const, dependencies };
     });
   }
   private async replaceFutureSchedule(
@@ -251,13 +318,18 @@ export class DebtsService {
         "El recálculo alcanzaría una cuota con historial de pagos",
         "No se pueden reemplazar cuotas con historial de pagos",
       );
-    const rate = toEffectiveMonthly(debt.interestRate, debt.interestRateBasis);
+    const rate = toEffectivePeriodic(
+      debt.interestRate,
+      debt.interestRateBasis,
+      debt.paymentFrequency,
+    );
     const schedule = generateAmortizationSchedule({
       principal: balance,
       periodicRate: rate,
       numberOfInstallments: debt.termMonths - start + 1,
       firstPaymentDate:
         start === 1 ? debt.firstPaymentDate : new Date(debt.nextDueDate ?? debt.firstPaymentDate),
+      paymentFrequency: debt.paymentFrequency,
       ...(payment ? { paymentAmount: payment } : {}),
     });
     await tx.debtInstallment.deleteMany({
@@ -350,19 +422,26 @@ export class DebtsService {
         const installment = await tx.debtInstallment.findFirst({
           where: { id: installmentId, debtId, workspaceId },
         });
-        const account = await tx.financialAccount.findFirst({
-          where: {
-            id: input.accountId,
-            workspaceId,
-            nature: "ASSET",
-            isActive: true,
-            deletedAt: null,
-          },
-        });
+        const account = input.accountId
+          ? await tx.financialAccount.findFirst({
+              where: {
+                id: input.accountId,
+                workspaceId,
+                nature: "ASSET",
+                isActive: true,
+                deletedAt: null,
+              },
+            })
+          : null;
         if (!debt || !installment) throw missing();
-        if (!account || account.currency !== debt.currency)
+        if (input.accountId && (!account || account.currency !== debt.currency))
           throw new ConflictError("Cuenta pagadora o moneda incompatible");
         const amount = D(input.amount);
+        if (account && amount.gt(account.currentBalance))
+          throw new ConflictError(
+            "Fondos insuficientes",
+            "La cuenta seleccionada no tiene fondos suficientes.",
+          );
         const suppliedBreakdown = input.principalAmount !== undefined;
         const previous = await tx.debtPayment.aggregate({
           _sum: {
@@ -403,6 +482,11 @@ export class DebtsService {
           .plus(feeAmount)
           .plus(extraPaymentAmount);
         if (!components.eq(amount)) throw new ConflictError("El desglose no coincide con el pago");
+        if (principalAmount.plus(extraPaymentAmount).gt(debt.currentBalance))
+          throw new ConflictError(
+            "Pago superior al saldo del crédito",
+            "El pago supera la deuda actual del crédito.",
+          );
         if (
           amount.gt(installment.totalAmount.minus(installment.paidAmount).plus(extraPaymentAmount))
         )
@@ -415,18 +499,31 @@ export class DebtsService {
             status: "CONFIRMED",
             amount,
             currency: debt.currency,
-            accountId: account.id,
+            accountId: account?.id ?? null,
             destinationAccountId: debt.liabilityAccountId,
             occurredAt: new Date(input.paidAt),
             description: `Pago ${debt.name}`,
             externalReference: input.idempotencyKey,
+            metadata: {
+              debtId: debt.id,
+              debtName: debt.name,
+              debtOperation: "INSTALLMENT_PAYMENT",
+              paymentSource: account ? "ACCOUNT" : "EXTERNAL",
+              strategy: input.strategy ?? null,
+              balanceBefore: debt.currentBalance.toFixed(2),
+              balanceAfter: Prisma.Decimal.max(
+                0,
+                debt.currentBalance.minus(principalAmount).minus(extraPaymentAmount),
+              ).toFixed(2),
+            },
           },
         });
         const paid = installment.paidAmount.plus(amount.minus(extraPaymentAmount));
-        await tx.financialAccount.update({
-          where: { id: account.id },
-          data: { currentBalance: { decrement: amount } },
-        });
+        if (account)
+          await tx.financialAccount.update({
+            where: { id: account.id },
+            data: { currentBalance: { decrement: amount } },
+          });
         if (debt.liabilityAccountId)
           await tx.financialAccount.update({
             where: { id: debt.liabilityAccountId },
@@ -452,6 +549,51 @@ export class DebtsService {
             paidAt: paid.gte(installment.totalAmount) ? new Date(input.paidAt) : null,
           },
         });
+        await syncFinancialEvent(tx, debtInstallmentEventWhere(workspaceId, installment.id), {
+          isCompleted: paid.gte(installment.totalAmount),
+          remainingAmount: Prisma.Decimal.max(0, installment.totalAmount.minus(paid)),
+        });
+        if (extraPaymentAmount.gt(0) && !balance.isZero()) {
+          const future = await tx.debtInstallment.findMany({
+            where: { workspaceId, debtId, status: { in: ["PENDING", "OVERDUE"] } },
+            orderBy: { installmentNumber: "asc" },
+          });
+          const strategy = input.strategy ?? "REDUCE_TERM";
+          const periodicRate = toEffectivePeriodic(
+            debt.interestRate,
+            debt.interestRateBasis,
+            debt.paymentFrequency,
+          );
+          let term = future.length;
+          let installmentAmount = debt.installmentAmount;
+          if (strategy === "REDUCE_TERM" && installmentAmount)
+            term = calculateNumberOfPeriods(balance, periodicRate, installmentAmount);
+          if (strategy === "REDUCE_PAYMENT" && term > 0)
+            installmentAmount = calculateFixedPayment({
+              principal: balance,
+              periodicRate,
+              numberOfInstallments: term,
+            });
+          const totalTerm = future[0] ? future[0].installmentNumber + term - 1 : term;
+          await tx.debt.update({
+            where: { id: debt.id },
+            data: { installmentAmount, termMonths: totalTerm },
+          });
+          if (future[0])
+            await this.replaceFutureSchedule(
+              tx,
+              {
+                ...debt,
+                currentBalance: balance,
+                installmentAmount,
+                termMonths: totalTerm,
+                nextDueDate: future[0].dueDate,
+              },
+              future[0].installmentNumber,
+              balance,
+              installmentAmount ?? undefined,
+            );
+        }
         const next = await tx.debtInstallment.findFirst({
           where: { workspaceId, debtId, status: { in: ["PENDING", "PARTIAL", "OVERDUE"] } },
           orderBy: { dueDate: "asc" },
@@ -503,11 +645,11 @@ export class DebtsService {
       });
       if (!p) throw new NotFoundError("Pago no encontrado");
       if (p.reversedAt) throw new ConflictError("Pago ya revertido");
-      if (!p.transactions.accountId) throw new ConflictError("Pago sin cuenta");
-      await tx.financialAccount.update({
-        where: { id: p.transactions.accountId },
-        data: { currentBalance: { increment: p.totalAmount } },
-      });
+      if (p.transactions.accountId)
+        await tx.financialAccount.update({
+          where: { id: p.transactions.accountId },
+          data: { currentBalance: { increment: p.totalAmount } },
+        });
       if (p.debts.liabilityAccountId)
         await tx.financialAccount.update({
           where: { id: p.debts.liabilityAccountId },
@@ -529,6 +671,14 @@ export class DebtsService {
           where: { id: p.debtInstallments.id },
           data: { paidAmount: paid, status: paid.isZero() ? "PENDING" : "PARTIAL", paidAt: null },
         });
+        await syncFinancialEvent(
+          tx,
+          debtInstallmentEventWhere(workspaceId, p.debtInstallments.id),
+          {
+            isCompleted: false,
+            remainingAmount: Prisma.Decimal.max(0, p.debtInstallments.totalAmount.minus(paid)),
+          },
+        );
       }
       await tx.transaction.update({
         where: { id: p.transactionId },
@@ -554,7 +704,11 @@ export class DebtsService {
       .findFirst({ where: { id: debtId, workspaceId, deletedAt: null } })
       .then((debt) => {
         if (!debt) throw missing();
-        const rate = toEffectiveMonthly(debt.interestRate, debt.interestRateBasis),
+        const rate = toEffectivePeriodic(
+            debt.interestRate,
+            debt.interestRateBasis,
+            debt.paymentFrequency,
+          ),
           after = Prisma.Decimal.max(0, debt.currentBalance.minus(input.amount));
         const beforeTerm = debt.termMonths ?? 0,
           beforePayment = debt.installmentAmount ?? new Prisma.Decimal(0);
@@ -585,6 +739,7 @@ export class DebtsService {
                     periodicRate: rate,
                     numberOfInstallments: beforeTerm,
                     firstPaymentDate: debt.firstPaymentDate,
+                    paymentFrequency: debt.paymentFrequency,
                     paymentAmount: beforePayment,
                   }),
                   0,
@@ -598,6 +753,7 @@ export class DebtsService {
                     periodicRate: rate,
                     numberOfInstallments: afterTerm,
                     firstPaymentDate: debt.firstPaymentDate,
+                    paymentFrequency: debt.paymentFrequency,
                     paymentAmount: afterPayment,
                   }),
                   0,
@@ -612,8 +768,8 @@ export class DebtsService {
     debtId: string,
     input: PrepaymentInput,
   ) {
-    if (!input.accountId || !input.occurredAt || !input.idempotencyKey)
-      throw new ConflictError("Para aplicar el abono se requieren cuenta, fecha e idempotencia");
+    if (!input.occurredAt || !input.idempotencyKey)
+      throw new ConflictError("Para aplicar el abono se requieren fecha e idempotencia");
     const accountId = input.accountId;
     const occurredAt = input.occurredAt;
     const idempotencyKey = input.idempotencyKey;
@@ -625,19 +781,34 @@ export class DebtsService {
       const debt = await tx.debt.findFirst({
         where: { id: debtId, workspaceId, status: "ACTIVE", deletedAt: null },
       });
-      const account = await tx.financialAccount.findFirst({
-        where: {
-          id: accountId,
-          workspaceId,
-          nature: "ASSET",
-          isActive: true,
-          deletedAt: null,
-        },
-      });
-      if (!debt || !account) throw missing();
+      const account = accountId
+        ? await tx.financialAccount.findFirst({
+            where: {
+              id: accountId,
+              workspaceId,
+              nature: "ASSET",
+              isActive: true,
+              deletedAt: null,
+            },
+          })
+        : null;
+      if (!debt || (accountId && !account)) throw missing();
       const amount = D(input.amount);
-      if (amount.gt(debt.currentBalance)) throw new ConflictError("Abono superior al saldo");
-      if (account.currency !== debt.currency) throw new ConflictError("Moneda incompatible");
+      if (amount.gt(debt.currentBalance))
+        throw new ConflictError(
+          "Abono superior al saldo",
+          `El abono supera el saldo pendiente del crédito. El máximo disponible es ${debt.currentBalance.toFixed(2)}.`,
+        );
+      if (account && account.currency !== debt.currency)
+        throw new ConflictError(
+          "Moneda incompatible",
+          "La cuenta y el crédito deben usar la misma moneda.",
+        );
+      if (account && amount.gt(account.currentBalance))
+        throw new ConflictError(
+          "Fondos insuficientes",
+          "La cuenta seleccionada no tiene fondos suficientes.",
+        );
       const tr = await tx.transaction.create({
         data: {
           workspaceId,
@@ -646,17 +817,27 @@ export class DebtsService {
           status: "CONFIRMED",
           amount,
           currency: debt.currency,
-          accountId: account.id,
+          accountId: account?.id ?? null,
           destinationAccountId: debt.liabilityAccountId,
           occurredAt: new Date(occurredAt),
           description: `Abono ${debt.name}`,
           externalReference: idempotencyKey,
+          metadata: {
+            debtId: debt.id,
+            debtName: debt.name,
+            debtOperation: "EXTRA_PAYMENT",
+            paymentSource: account ? "ACCOUNT" : "EXTERNAL",
+            strategy: input.strategy,
+            balanceBefore: debt.currentBalance.toFixed(2),
+            balanceAfter: debt.currentBalance.minus(amount).toFixed(2),
+          },
         },
       });
-      await tx.financialAccount.update({
-        where: { id: account.id },
-        data: { currentBalance: { decrement: amount } },
-      });
+      if (account)
+        await tx.financialAccount.update({
+          where: { id: account.id },
+          data: { currentBalance: { decrement: amount } },
+        });
       if (debt.liabilityAccountId)
         await tx.financialAccount.update({
           where: { id: debt.liabilityAccountId },
@@ -675,7 +856,11 @@ export class DebtsService {
           idempotencyKey,
         },
       });
-      const periodicRate = toEffectiveMonthly(debt.interestRate, debt.interestRateBasis);
+      const periodicRate = toEffectivePeriodic(
+        debt.interestRate,
+        debt.interestRateBasis,
+        debt.paymentFrequency,
+      );
       const future = await tx.debtInstallment.findMany({
         where: { workspaceId, debtId, status: { in: ["PENDING", "OVERDUE"] } },
         orderBy: { installmentNumber: "asc" },

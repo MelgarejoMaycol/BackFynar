@@ -45,8 +45,10 @@ export const update = x(async (q, r) =>
   }),
 );
 export const archive = x(async (q, r) => {
-  await s.archive(q.workspace!.workspaceId, p(uuid, q.params.obligationId));
-  r.status(204).send();
+  r.json({
+    success: true,
+    data: await s.remove(q.workspace!.workspaceId, q.auth!.userId, p(uuid, q.params.obligationId)),
+  });
 });
 export const occurrence = x(async (q, r) => {
   const i = p(occurrenceSchema, q.body);
