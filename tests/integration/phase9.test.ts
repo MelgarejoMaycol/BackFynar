@@ -177,6 +177,20 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     });
     expect(unused.status).toBe(201);
     expect(unused.body.data.currentBalance).toBe("0.00");
+    const paidCycle = await post({
+      name: `Card paid cycle ${suffix}`,
+      currency: "COP",
+      creditLimit: "1000000.00",
+      usedCredit: "800000.00",
+      billingDay: 25,
+      paymentDueDay: 5,
+      currentCyclePaid: true,
+    });
+    expect(paidCycle.status).toBe(201);
+    const paidCycleRow = await prisma.financialAccount.findUniqueOrThrow({
+      where: { id: paidCycle.body.data.id },
+    });
+    expect(paidCycleRow.cardCyclePaidThrough).not.toBeNull();
     expect(
       (
         await post({
@@ -240,6 +254,12 @@ describe.sequential("Fase 9 backend de pasivos", () => {
       paymentDueDay: 5,
       currency: "COP",
     });
+    const listedPaidCycle = listed.body.data.find(
+      (item: { id: string }) => item.id === paidCycle.body.data.id,
+    );
+    expect(
+      new Date(`${listedPaidCycle.nextPaymentDate}T00:00:00Z`).getTime(),
+    ).toBeGreaterThan(paidCycleRow.cardCyclePaidThrough!.getTime());
   });
   it("crea crédito y cronograma", async () => {
     const estimation = await request(app)
@@ -452,6 +472,43 @@ describe.sequential("Fase 9 backend de pasivos", () => {
       isCompleted: false,
       amount: nextInstallment.totalAmount.minus("100"),
     });
+    const accountBeforeExternal = await prisma.financialAccount.findUniqueOrThrow({
+      where: { id: asset },
+    });
+    const externalKey = `credit-external-${suffix}`;
+    const externalPayment = await request(app)
+      .post(url(`/debts/${debt}/installments/${partialInstallment}/payments`))
+      .set(auth(actors[0]!.token))
+      .send({
+        amount: "50",
+        paidAt: "2026-09-13T12:00:00Z",
+        idempotencyKey: externalKey,
+      });
+    expect(externalPayment.status).toBe(201);
+    const externalTransaction = await prisma.transaction.findFirstOrThrow({
+      where: { workspaceId: actors[0]!.workspaceId, externalReference: externalKey },
+    });
+    expect(externalTransaction.accountId).toBeNull();
+    expect(externalTransaction.metadata).toMatchObject({ paymentSource: "EXTERNAL" });
+    expect(
+      (
+        await prisma.financialAccount.findUniqueOrThrow({ where: { id: asset } })
+      ).currentBalance.eq(accountBeforeExternal.currentBalance),
+    ).toBe(true);
+    const externalRetry = await request(app)
+      .post(url(`/debts/${debt}/installments/${partialInstallment}/payments`))
+      .set(auth(actors[0]!.token))
+      .send({
+        amount: "50",
+        paidAt: "2026-09-13T12:00:00Z",
+        idempotencyKey: externalKey,
+      });
+    expect(externalRetry.body.data.idempotent).toBe(true);
+    expect(
+      await prisma.debtPayment.count({
+        where: { workspaceId: actors[0]!.workspaceId, idempotencyKey: externalKey },
+      }),
+    ).toBe(1);
     evidence.credit = {
       bankBefore: bankBefore.currentBalance.toFixed(2),
       payment: "1000.00",
@@ -717,6 +774,20 @@ describe.sequential("Fase 9 backend de pasivos", () => {
         await prisma.financialAccount.findUniqueOrThrow({ where: { id: card } })
       ).currentBalance.isZero(),
     ).toBe(true);
+
+    const purchaseCountBeforeRejection = await prisma.transaction.count({
+      where: { workspaceId: actors[0]!.workspaceId },
+    });
+    const rejected = await createExpense("2500000", "generic-over-limit");
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.error.message).toContain("No tienes cupo suficiente");
+    expect(
+      (await prisma.financialAccount.findUniqueOrThrow({ where: { id: card } })).currentBalance
+        .isZero(),
+    ).toBe(true);
+    expect(
+      await prisma.transaction.count({ where: { workspaceId: actors[0]!.workspaceId } }),
+    ).toBe(purchaseCountBeforeRejection);
 
     const payable = await createExpense("80000", "generic-payable");
     expect(payable.status).toBe(201);
@@ -1033,5 +1104,17 @@ describe.sequential("Fase 9 backend de pasivos", () => {
         where: { relatedObligationId: archivedObligationId, isCompleted: false },
       }),
     ).toBe(0);
+    const activeObligations = await request(app)
+      .get(url("/obligations"))
+      .set(auth(actors[0]!.token));
+    const archivedObligations = await request(app)
+      .get(url("/obligations?archived=true"))
+      .set(auth(actors[0]!.token));
+    expect(activeObligations.body.data).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: archivedObligationId })]),
+    );
+    expect(archivedObligations.body.data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: archivedObligationId })]),
+    );
   });
 });

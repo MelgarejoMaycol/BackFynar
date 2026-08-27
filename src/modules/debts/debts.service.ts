@@ -259,19 +259,6 @@ export class DebtsService {
         tx.debtReconciliation.count({ where: { workspaceId, debtId: id } }),
       ]);
       const dependencies = { payments, reconciliations };
-      if (payments === 0) {
-        await recordDeletionAudit(tx, {
-          workspaceId,
-          userId,
-          entityType: "DEBT",
-          entityId: id,
-          mode: "PHYSICAL",
-          name: current.name,
-          dependencies,
-        });
-        await tx.debt.delete({ where: { id } });
-        return { mode: "PHYSICAL" as const, dependencies };
-      }
       await tx.debt.update({
         where: { id },
         data: { deletedAt: new Date(), status: "CANCELLED" },

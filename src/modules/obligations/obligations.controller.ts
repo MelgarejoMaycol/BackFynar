@@ -26,7 +26,10 @@ export const create = x(async (q, r) =>
   }),
 );
 export const list = x(async (q, r) =>
-  r.json({ success: true, data: await s.list(q.workspace!.workspaceId) }),
+  r.json({
+    success: true,
+    data: await s.list(q.workspace!.workspaceId, q.query.archived === "true"),
+  }),
 );
 export const get = x(async (q, r) =>
   r.json({

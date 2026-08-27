@@ -83,6 +83,26 @@ export const assertSufficientTransferFunds = (
       "No tienes saldo suficiente en la cuenta de origen para realizar esta transferencia.",
     );
 };
+export const assertCardPurchaseWithinLimit = (
+  amount: Prisma.Decimal,
+  currentBalance: Prisma.Decimal,
+  creditLimit: Prisma.Decimal | null,
+  currency = "COP",
+) => {
+  if (!creditLimit) return;
+  const available = Prisma.Decimal.max(0, creditLimit.minus(currentBalance));
+  if (amount.gt(available))
+    throw new ConflictError(
+      "Cupo insuficiente",
+      `No tienes cupo suficiente. Disponible: ${new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+      })
+        .format(available.toNumber())
+        .replace(/\s/g, " ")}.`,
+    );
+};
 export class TransactionsService {
   constructor(private readonly repository: TransactionsRepository = transactionsRepository) {}
   async list(workspaceId: string, filters: ListTransactionsInput) {
@@ -202,7 +222,14 @@ export class TransactionsService {
     const signed = direction === 1 ? amount : amount.negated();
     const accounts = await tx.financialAccount.findMany({
       where: { id: { in: [accountId, ...(destinationId ? [destinationId] : [])] } },
-      select: { id: true, nature: true, currentBalance: true, type: true },
+      select: {
+        id: true,
+        nature: true,
+        currentBalance: true,
+        type: true,
+        creditLimit: true,
+        currency: true,
+      },
     });
     const source = accounts.find((account) => account.id === accountId)!;
     const destination = destinationId
@@ -220,6 +247,13 @@ export class TransactionsService {
       assertLiabilityPaymentWithinBalance(amount, destination.currentBalance);
     if (direction === 1 && type === "TRANSFER" && source.nature === "ASSET")
       assertSufficientTransferFunds(amount, source.currentBalance);
+    if (direction === 1 && type === "EXPENSE" && source.type === "CREDIT_CARD")
+      assertCardPurchaseWithinLimit(
+        amount,
+        source.currentBalance,
+        source.creditLimit,
+        source.currency,
+      );
     if (
       direction === 1 &&
       type === "TRANSFER" &&

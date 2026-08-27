@@ -16,6 +16,7 @@ export const createCardSchema = z
     usedCredit: money.optional(),
     billingDay: z.number().int().min(1).max(31).optional(),
     paymentDueDay: z.number().int().min(1).max(31).optional(),
+    currentCyclePaid: z.boolean().optional(),
     referencePeriodicRate: rate.optional(),
     referenceRateSource: z.enum(["INFORMED", "ESTIMATED"]).optional(),
   })

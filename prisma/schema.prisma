@@ -297,6 +297,7 @@ model FinancialAccount {
   creditLimit                                                     Decimal?                 @map("credit_limit") @db.Decimal(18, 2)
   billingDay                                                      Int?                     @map("billing_day") @db.SmallInt
   paymentDueDay                                                   Int?                     @map("payment_due_day") @db.SmallInt
+  cardCyclePaidThrough                                           DateTime?                @map("card_cycle_paid_through") @db.Date
   referencePeriodicRate                                           Decimal?                 @map("reference_periodic_rate") @db.Decimal(10, 7)
   referenceRateSource                                             String?                  @map("reference_rate_source") @db.VarChar(20)
   color                                                           String?                  @db.VarChar(20)

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertLiabilityPaymentWithinBalance,
+  assertCardPurchaseWithinLimit,
   assertSufficientTransferFunds,
   balanceDeltas,
   TransactionsService,
@@ -33,6 +34,23 @@ describe("semántica contable por naturaleza", () => {
   it("incrementa la deuda cuando el gasto se hace desde un pasivo", () => {
     const result = balanceDeltas("EXPENSE", new Prisma.Decimal("100.00"), "LIABILITY");
     expect(result.sourceDelta.toFixed(2)).toBe("100.00");
+  });
+
+  it("bloquea compras que superan el cupo disponible de la tarjeta", () => {
+    expect(() =>
+      assertCardPurchaseWithinLimit(
+        new Prisma.Decimal("568000"),
+        new Prisma.Decimal("800000"),
+        new Prisma.Decimal("1000000"),
+      ),
+    ).toThrow("Cupo insuficiente");
+    expect(() =>
+      assertCardPurchaseWithinLimit(
+        new Prisma.Decimal("150000"),
+        new Prisma.Decimal("800000"),
+        new Prisma.Decimal("1000000"),
+      ),
+    ).not.toThrow();
   });
 
   it("incrementa un activo y reduce una tarjeta al registrar ingresos", () => {

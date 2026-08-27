@@ -105,17 +105,20 @@ export class ObligationsService {
       return pub(obligation);
     });
   }
-  list(w: string) {
+  list(w: string, archived = false) {
     return this.db.recurringObligation
       .findMany({
-        where: { workspaceId: w, deletedAt: null },
+        where: {
+          workspaceId: w,
+          deletedAt: archived ? { not: null } : null,
+        },
         include: { recurrenceRules: true, occurrences: { orderBy: { dueDate: "asc" } } },
       })
       .then((a) => a.map(pub));
   }
   async get(w: string, id: string) {
     const x = await this.db.recurringObligation.findFirst({
-      where: { id, workspaceId: w, deletedAt: null },
+      where: { id, workspaceId: w },
       include: { recurrenceRules: true, occurrences: true },
     });
     if (!x) throw new NotFoundError("Obligación no encontrada");
@@ -172,20 +175,6 @@ export class ObligationsService {
             }),
           ]);
           const dependencies = { paidOccurrences, transactions };
-          if (paidOccurrences === 0 && transactions === 0) {
-            await recordDeletionAudit(t, {
-              workspaceId: w,
-              userId: u,
-              entityType: "RECURRING_OBLIGATION",
-              entityId: id,
-              mode: "PHYSICAL",
-              name: current.name,
-              dependencies,
-            });
-            await t.recurringObligation.delete({ where: { id } });
-            await t.recurrenceRule.delete({ where: { id: current.recurrenceRuleId } });
-            return { mode: "PHYSICAL" as const, dependencies };
-          }
           await t.recurringObligation.update({
             where: { id },
             data: { deletedAt: new Date(), status: "CANCELLED" },

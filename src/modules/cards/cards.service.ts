@@ -57,6 +57,19 @@ export class CardsService {
         : new Prisma.Decimal(0);
     if (used.lt(0) || used.gt(limit))
       throw new ConflictError("Cupo disponible o utilizado inválido");
+    const workspace = await this.db.workspace.findUnique({
+      where: { id: w },
+      select: { timezone: true },
+    });
+    const paidThrough =
+      i.currentCyclePaid && i.paymentDueDay
+        ? cardCycleDates(
+            new Date(),
+            i.billingDay ?? null,
+            i.paymentDueDay,
+            workspace?.timezone ?? "UTC",
+          ).nextPaymentDate
+        : null;
     return this.db.financialAccount
       .create({
         data: {
@@ -71,6 +84,7 @@ export class CardsService {
           creditLimit: limit,
           billingDay: i.billingDay ?? null,
           paymentDueDay: i.paymentDueDay ?? null,
+          cardCyclePaidThrough: paidThrough,
           includeInNetWorth: true,
           referencePeriodicRate: i.referencePeriodicRate ? D(i.referencePeriodicRate) : null,
           referenceRateSource: i.referencePeriodicRate
@@ -214,8 +228,11 @@ export class CardsService {
     return cards.map((c) => {
       const limit = c.creditLimit ?? new Prisma.Decimal(0),
         used = Prisma.Decimal.max(0, c.currentBalance);
+      const cycleReference = c.cardCyclePaidThrough
+        ? new Date(c.cardCyclePaidThrough.getTime() + 36 * 60 * 60 * 1000)
+        : now;
       const cycle = cardCycleDates(
-        now,
+        cycleReference,
         c.billingDay,
         c.paymentDueDay,
         workspace?.timezone ?? "UTC",
@@ -231,13 +248,14 @@ export class CardsService {
         availableCredit: Prisma.Decimal.max(0, limit.minus(used)).toFixed(2),
         utilization: limit.gt(0) ? used.div(limit).mul(100).toDecimalPlaces(2).toString() : "0",
         nextBillingDate: cycle.nextBillingDate?.toISOString().slice(0, 10) ?? null,
-        nextPaymentDate:
-          (expectation && expectation.status !== "PAID"
-            ? expectation.dueDate.toISOString().slice(0, 10)
-            : null) ??
-          statement?.dueDate.toISOString().slice(0, 10) ??
-          cycle.nextPaymentDate?.toISOString().slice(0, 10) ??
-          null,
+        nextPaymentDate: used.lte(0)
+          ? null
+          : ((expectation && expectation.status !== "PAID"
+              ? expectation.dueDate.toISOString().slice(0, 10)
+              : null) ??
+            statement?.dueDate.toISOString().slice(0, 10) ??
+            cycle.nextPaymentDate?.toISOString().slice(0, 10) ??
+            null),
         nextPayment:
           used.lte(0)
             ? null
