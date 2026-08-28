@@ -7,6 +7,7 @@ r.get("/", requirePermission("debts.read"), c.list);
 r.get("/:obligationId", requirePermission("debts.read"), c.get);
 r.patch("/:obligationId", requirePermission("debts.write"), c.update);
 r.delete("/:obligationId", requirePermission("debts.write"), c.archive);
+r.post("/:obligationId/restore", requirePermission("debts.write"), c.restore);
 r.post("/:obligationId/occurrences", requirePermission("debts.write"), c.occurrence);
 r.post(
   "/:obligationId/occurrences/:occurrenceId/payments",

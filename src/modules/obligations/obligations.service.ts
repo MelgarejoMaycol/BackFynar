@@ -206,6 +206,99 @@ export class ObligationsService {
       ),
     );
   }
+  async restore(w: string, id: string) {
+    return this.tx(async (t) => {
+      const obligation = await t.recurringObligation.findFirst({
+        where: { id, workspaceId: w, deletedAt: { not: null } },
+        include: { recurrenceRules: true },
+      });
+      if (!obligation) throw new NotFoundError("Obligación archivada no encontrada");
+
+      const rule = obligation.recurrenceRules;
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      let nextDueDate = new Date(rule.startsOn);
+      while (nextDueDate < today)
+        nextDueDate = nextRecurrenceDate(nextDueDate, rule.frequency, rule.intervalValue);
+
+      await t.recurringObligation.update({
+        where: { id },
+        data: { deletedAt: null, status: "ACTIVE" },
+      });
+
+      if (!rule.endsOn || nextDueDate <= rule.endsOn) {
+        const existingOccurrence = await t.obligationOccurrence.findUnique({
+          where: {
+            workspaceId_obligationId_dueDate: {
+              workspaceId: w,
+              obligationId: id,
+              dueDate: nextDueDate,
+            },
+          },
+        });
+        const restoredStatus = existingOccurrence?.paidAmount.gte(existingOccurrence.amount)
+          ? "PAID"
+          : existingOccurrence?.paidAmount.gt(0)
+            ? "PARTIAL"
+            : "PENDING";
+        const occurrence = await t.obligationOccurrence.upsert({
+          where: {
+            workspaceId_obligationId_dueDate: {
+              workspaceId: w,
+              obligationId: id,
+              dueDate: nextDueDate,
+            },
+          },
+          create: {
+            workspaceId: w,
+            obligationId: id,
+            dueDate: nextDueDate,
+            amount: obligation.expectedAmount,
+          },
+          update: {
+            status: restoredStatus,
+          },
+        });
+        await t.financialEvent.upsert({
+          where: {
+            workspaceId_relatedObligationOccurrenceId: {
+              workspaceId: w,
+              relatedObligationOccurrenceId: occurrence.id,
+            },
+          },
+          create: {
+            workspaceId: w,
+            type: "RECURRING_OBLIGATION",
+            title: obligation.name,
+            amount: occurrence.amount,
+            currency: obligation.currency,
+            startsAt: nextDueDate,
+            relatedObligationId: id,
+            relatedObligationOccurrenceId: occurrence.id,
+            recurrenceRuleId: rule.id,
+          },
+          update: {
+            title: obligation.name,
+            amount: Prisma.Decimal.max(0, occurrence.amount.minus(occurrence.paidAmount)),
+            startsAt: nextDueDate,
+            isCompleted: restoredStatus === "PAID",
+            updatedAt: new Date(),
+          },
+        });
+        await t.recurrenceRule.update({
+          where: { id: rule.id },
+          data: {
+            nextRunAt: nextRecurrenceDate(nextDueDate, rule.frequency, rule.intervalValue),
+          },
+        });
+      }
+      const restored = await t.recurringObligation.findUniqueOrThrow({
+        where: { id },
+        include: { recurrenceRules: true, occurrences: true },
+      });
+      return pub(restored);
+    });
+  }
   async occurrence(w: string, id: string, dueDate: string, amount?: string) {
     const o = await this.db.recurringObligation.findFirst({
       where: { id, workspaceId: w, deletedAt: null, status: "ACTIVE" },
@@ -269,14 +362,20 @@ export class ObligationsService {
     input: { accountId: string; amount: string; occurredAt: string; idempotencyKey: string },
   ) {
     return this.tx(async (t) => {
-      const duplicate = await t.transaction.findFirst({
-        where: { workspaceId: w, externalReference: input.idempotencyKey },
-      });
-      if (duplicate) return { transactionId: duplicate.id, idempotent: true };
       const o = await t.obligationOccurrence.findFirst({
         where: { id: occurrenceId, obligationId: id, workspaceId: w },
         include: { obligation: { include: { recurrenceRules: true } } },
       });
+      if (!o) throw new NotFoundError("Ocurrencia no encontrada");
+      if (o?.obligation.deletedAt || o?.obligation.status !== "ACTIVE")
+        throw new ConflictError(
+          "Esta obligación está archivada. Restáurala antes de registrar nuevos pagos.",
+          "Esta obligación está archivada. Restáurala antes de registrar nuevos pagos.",
+        );
+      const duplicate = await t.transaction.findFirst({
+        where: { workspaceId: w, externalReference: input.idempotencyKey },
+      });
+      if (duplicate) return { transactionId: duplicate.id, idempotent: true };
       const a = await t.financialAccount.findFirst({
         where: {
           id: input.accountId,

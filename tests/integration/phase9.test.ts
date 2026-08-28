@@ -1116,5 +1116,73 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     expect(archivedObligations.body.data).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: archivedObligationId })]),
     );
+
+    const stateBeforeRejectedPayment = {
+      transactions: await prisma.transaction.count({
+        where: { metadata: { path: ["obligationOccurrenceId"], equals: occurrenceIds[2]! } },
+      }),
+      occurrences: await prisma.obligationOccurrence.count({
+        where: { obligationId: archivedObligationId },
+      }),
+      events: await prisma.financialEvent.count({
+        where: { relatedObligationId: archivedObligationId },
+      }),
+    };
+    const rejectedArchivedPayment = await request(app)
+      .post(url(`/obligations/${archivedObligationId}/occurrences/${occurrenceIds[2]}/payments`))
+      .set(auth(actors[0]!.token))
+      .send({
+        accountId: asset,
+        amount: "100",
+        occurredAt: "2026-08-28T12:00:00Z",
+        idempotencyKey: `archived-obligation-rejected-${suffix}`,
+      });
+    expect(rejectedArchivedPayment.status).toBe(409);
+    expect(rejectedArchivedPayment.body.error.message).toBe(
+      "Esta obligación está archivada. Restáurala antes de registrar nuevos pagos.",
+    );
+    expect({
+      transactions: await prisma.transaction.count({
+        where: { metadata: { path: ["obligationOccurrenceId"], equals: occurrenceIds[2]! } },
+      }),
+      occurrences: await prisma.obligationOccurrence.count({
+        where: { obligationId: archivedObligationId },
+      }),
+      events: await prisma.financialEvent.count({
+        where: { relatedObligationId: archivedObligationId },
+      }),
+    }).toEqual(stateBeforeRejectedPayment);
+
+    const restoredObligation = await request(app)
+      .post(url(`/obligations/${archivedObligationId}/restore`))
+      .set(auth(actors[0]!.token));
+    expect(restoredObligation.status).toBe(200);
+    expect(restoredObligation.body.data).toMatchObject({
+      id: archivedObligationId,
+      status: "ACTIVE",
+      deletedAt: null,
+    });
+    expect(
+      await prisma.obligationOccurrence.count({
+        where: { obligationId: archivedObligationId },
+      }),
+    ).toBe(stateBeforeRejectedPayment.occurrences);
+    expect(
+      await prisma.financialEvent.count({
+        where: { relatedObligationId: archivedObligationId },
+      }),
+    ).toBe(stateBeforeRejectedPayment.events);
+    expect(
+      await prisma.obligationOccurrence.count({
+        where: {
+          obligationId: archivedObligationId,
+          dueDate: { gte: new Date("2026-08-28T00:00:00Z") },
+          status: { in: ["PENDING", "PARTIAL"] },
+        },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.obligationOccurrence.findUniqueOrThrow({ where: { id: occurrenceIds[1]! } }),
+    ).toMatchObject({ paidAmount: new Prisma.Decimal("400"), status: "CANCELLED" });
   });
 });

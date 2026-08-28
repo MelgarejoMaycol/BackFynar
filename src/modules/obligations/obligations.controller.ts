@@ -53,6 +53,12 @@ export const archive = x(async (q, r) => {
     data: await s.remove(q.workspace!.workspaceId, q.auth!.userId, p(uuid, q.params.obligationId)),
   });
 });
+export const restore = x(async (q, r) => {
+  r.json({
+    success: true,
+    data: await s.restore(q.workspace!.workspaceId, p(uuid, q.params.obligationId)),
+  });
+});
 export const occurrence = x(async (q, r) => {
   const i = p(occurrenceSchema, q.body);
   r.status(201).json({
