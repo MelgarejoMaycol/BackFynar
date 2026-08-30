@@ -83,10 +83,23 @@ export const login = execute(async (request, response) => {
   });
 });
 export const refresh = execute(async (request, response) => {
-  const refreshToken = request.cookies[REFRESH_COOKIE_NAME] as unknown;
-  if (typeof refreshToken !== "string" || refreshToken.length === 0) {
+  const cookieRefreshToken = request.cookies[REFRESH_COOKIE_NAME] as unknown;
+  const bodyRefreshToken =
+    request.body && typeof request.body === "object" && "refreshToken" in request.body
+      ? (request.body as { refreshToken?: unknown }).refreshToken
+      : undefined;
+  const refreshToken =
+    typeof cookieRefreshToken === "string" && cookieRefreshToken.length > 0
+      ? cookieRefreshToken
+      : typeof bodyRefreshToken === "string" &&
+          bodyRefreshToken.length >= 32 &&
+          bodyRefreshToken.length <= 512
+        ? bodyRefreshToken
+        : undefined;
+
+  if (!refreshToken) {
     clearRefreshCookie(response);
-    throw new UnauthorizedError("Refresh cookie ausente", "Sesion invalida");
+    throw new UnauthorizedError("Refresh token ausente", "Sesion invalida");
   }
   try {
     const tokens = await authService.refresh(refreshToken, metadata(request));
@@ -177,6 +190,12 @@ export const googleCallback = execute(async (request, response) => {
       const result = await authService.loginWithGoogle(profile, false, metadata(request));
       setRefreshCookie(response, result.tokens.refreshToken);
       destination.searchParams.set("status", "success");
+      // Safari/iOS bloquea cookies de terceros entre onrender.com y vercel.app.
+      // El token se entrega solo en el fragmento (no viaja en requests ni Referer),
+      // el frontend lo elimina de la URL y /auth/refresh lo rota inmediatamente.
+      destination.hash = new URLSearchParams({
+        refreshToken: result.tokens.refreshToken,
+      }).toString();
     } catch (error: unknown) {
       if (!(error instanceof AppError) || error.code !== "LEGAL_ACCEPTANCE_REQUIRED") throw error;
       const pendingToken = await googleOAuthService.createPending(flowId, profile);
