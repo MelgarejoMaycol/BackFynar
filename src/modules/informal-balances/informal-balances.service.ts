@@ -200,7 +200,7 @@ export class InformalBalancesService {
 
       const balance = await findOne(tx, workspaceId, id, true);
       if (!balance) throw missing();
-      if (!['OPEN','PARTIAL'].includes(balance.status)) throw new ConflictError("Este pendiente ya no admite pagos");
+      if (!["OPEN", "PARTIAL"].includes(balance.status)) throw new ConflictError("Este pendiente ya no admite pagos");
       const amount = D(input.amount);
       if (amount.gt(balance.current_balance)) throw new ConflictError("El pago no puede superar el saldo pendiente");
 
@@ -224,7 +224,13 @@ export class InformalBalancesService {
             occurredAt: new Date(input.paidAt),
             description: balance.direction === "PAYABLE" ? `Pago a ${balance.counterparty_name}: ${balance.description}` : `Cobro a ${balance.counterparty_name}: ${balance.description}`,
             externalReference: input.idempotencyKey,
-            metadata: { informalBalanceId: balance.id, direction: balance.direction, counterpartyName: balance.counterparty_name, operation: balance.direction === "PAYABLE" ? "PERSON_TO_PERSON_PAYMENT" : "PERSON_TO_PERSON_COLLECTION" },
+            metadata: {
+              source: "INFORMAL_BALANCE",
+              informalBalanceId: balance.id,
+              direction: balance.direction,
+              counterpartyName: balance.counterparty_name,
+              operation: balance.direction === "PAYABLE" ? "PERSON_TO_PERSON_PAYMENT" : "PERSON_TO_PERSON_COLLECTION",
+            },
           },
         });
         transactionId = transaction.id;
