@@ -12,6 +12,7 @@ import debtsRouter from "../debts/debts.routes.js";
 import obligationsRouter from "../obligations/obligations.routes.js";
 import cardsRouter from "../cards/cards.routes.js";
 import liabilitiesRouter from "../liabilities/liabilities.routes.js";
+import personalBalancesRouter from "../personal-balances/personal-balances.routes.js";
 
 const router = Router();
 router.use(authenticate);
@@ -25,6 +26,7 @@ router.use("/:workspaceId/reports", resolveWorkspaceContext, reportsRouter);
 router.use("/:workspaceId/debts", resolveWorkspaceContext, debtsRouter);
 router.use("/:workspaceId/obligations", resolveWorkspaceContext, obligationsRouter);
 router.use("/:workspaceId/cards", resolveWorkspaceContext, cardsRouter);
+router.use("/:workspaceId/personal-balances", resolveWorkspaceContext, personalBalancesRouter);
 router.use("/:workspaceId", resolveWorkspaceContext, liabilitiesRouter);
 router.get("/:workspaceId", resolveWorkspaceContext, controller.get);
 router.post("/:workspaceId/select", resolveWorkspaceContext, controller.select);
