@@ -56,7 +56,11 @@ export const resendVerificationSchema = z
   .object({ email: z.string().trim().toLowerCase().max(EMAIL_MAX_LENGTH).email() })
   .strict();
 export const googleLegalAcceptanceSchema = z
-  .object({ acceptedTerms: z.literal(true), acceptedPrivacy: z.literal(true) })
+  .object({
+    acceptedTerms: z.literal(true),
+    acceptedPrivacy: z.literal(true),
+    pendingToken: z.string().min(32).max(512).optional(),
+  })
   .strict();
 export const requestEmailChangeSchema = z
   .object({
