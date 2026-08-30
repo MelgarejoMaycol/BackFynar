@@ -189,7 +189,7 @@ export class InformalBalancesService {
   }
 
   async pay(workspaceId: string, userId: string, id: string, input: InformalPaymentInput) {
-    return withTransactionRetry(this.db, async (tx) => {
+    return withTransactionRetry(() => this.db.$transaction(async (tx) => {
       const existing = await tx.$queryRaw<PaymentRow[]>(Prisma.sql`
         SELECT id, amount, paid_at, account_id, transaction_id, notes, reversed_at
           FROM informal_balance_payments
@@ -252,7 +252,7 @@ export class InformalBalancesService {
       `);
       await tx.auditLog.create({ data: { workspaceId, userId, entityType: "INFORMAL_BALANCE", entityId: id, action: balance.direction === "PAYABLE" ? "PAY" : "COLLECT", newData: { amount: input.amount, remaining: remaining.toFixed(2), accountId: input.accountId ?? null } } });
       return { ...publicPayment(payments[0]!), remainingBalance: remaining.toFixed(2), status, idempotent: false };
-    });
+    }));
   }
 }
 
