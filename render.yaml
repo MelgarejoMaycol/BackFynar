@@ -44,4 +44,4 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: GOOGLE_CALLBACK_URL
-        value: https://fynarback.onrender.com/api/v1/auth/google/callback
+        value: https://backfynar.onrender.com/api/v1/auth/google/callback
