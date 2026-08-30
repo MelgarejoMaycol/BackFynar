@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import app from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./database/prisma.js";
@@ -6,6 +8,32 @@ import { markApplicationShuttingDown } from "./common/lifecycle/application-life
 import { captureServerException } from "./common/observability/sentry.js";
 
 const PORT = env.PORT;
+
+const applyProductionMigrations = (): void => {
+  if (env.NODE_ENV !== "production") return;
+
+  const prismaCli = resolve(process.cwd(), "node_modules", "prisma", "build", "index.js");
+  logger.info("Aplicando migraciones de base de datos antes de iniciar el servidor");
+
+  const result = spawnSync(process.execPath, [prismaCli, "migrate", "deploy"], {
+    env: process.env,
+    stdio: "inherit",
+  });
+
+  if (result.error || result.status !== 0) {
+    logger.error("No fue posible aplicar las migraciones de producción", {
+      errorName: result.error?.name,
+      errorCode: result.error && "code" in result.error ? result.error.code : undefined,
+      exitCode: result.status,
+      signal: result.signal,
+    });
+    process.exit(result.status ?? 1);
+  }
+
+  logger.info("Migraciones de producción aplicadas correctamente");
+};
+
+applyProductionMigrations();
 
 const server = app.listen(PORT, () => {
   logger.info("Servidor iniciado", {
