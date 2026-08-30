@@ -179,8 +179,12 @@ export const googleCallback = execute(async (request, response) => {
       destination.searchParams.set("status", "success");
     } catch (error: unknown) {
       if (!(error instanceof AppError) || error.code !== "LEGAL_ACCEPTANCE_REQUIRED") throw error;
-      setGooglePendingCookie(response, await googleOAuthService.createPending(flowId, profile));
+      const pendingToken = await googleOAuthService.createPending(flowId, profile);
+      // Keep the cookie as a compatibility fallback, but do not depend on it. Browsers such as
+      // Safari can block cross-site cookies when the web app and API live on different domains.
+      setGooglePendingCookie(response, pendingToken);
       destination.pathname = "/auth/google/legal";
+      destination.hash = new URLSearchParams({ pending: pendingToken }).toString();
     }
   } catch (error: unknown) {
     destination.searchParams.set("status", "error");
@@ -193,9 +197,15 @@ export const googleCallback = execute(async (request, response) => {
 });
 
 export const completeGoogleRegistration = execute(async (request, response) => {
-  parse(googleLegalAcceptanceSchema, request.body);
-  const pendingToken = request.cookies[GOOGLE_PENDING_COOKIE_NAME] as unknown;
-  if (typeof pendingToken !== "string" || !pendingToken)
+  const input = parse(googleLegalAcceptanceSchema, request.body);
+  const cookiePendingToken = request.cookies[GOOGLE_PENDING_COOKIE_NAME] as unknown;
+  const pendingToken =
+    input.pendingToken ??
+    (typeof cookiePendingToken === "string" && cookiePendingToken.length > 0
+      ? cookiePendingToken
+      : undefined);
+
+  if (!pendingToken)
     throw new AppError("Registro Google pendiente ausente", {
       status: 400,
       code: "GOOGLE_OAUTH_STATE_INVALID",
