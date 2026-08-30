@@ -21,13 +21,14 @@ const asyncRoute =
   };
 
 export const list = asyncRoute(async (request, response) => {
+  const filters: { direction?: string; status?: string; query?: string } = {};
+  if (typeof request.query.direction === "string") filters.direction = request.query.direction;
+  if (typeof request.query.status === "string") filters.status = request.query.status;
+  if (typeof request.query.q === "string") filters.query = request.query.q;
+
   response.json({
     success: true,
-    data: await service.list(request.workspace!.workspaceId, {
-      direction: typeof request.query.direction === "string" ? request.query.direction : undefined,
-      status: typeof request.query.status === "string" ? request.query.status : undefined,
-      query: typeof request.query.q === "string" ? request.query.q : undefined,
-    }),
+    data: await service.list(request.workspace!.workspaceId, filters),
   });
 });
 
