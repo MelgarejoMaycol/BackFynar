@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 export const isRetryableTransactionError = (error: unknown): boolean => {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
@@ -8,7 +8,18 @@ export const isRetryableTransactionError = (error: unknown): boolean => {
   return databaseCode === "40001" || databaseCode === "40P01";
 };
 
-export async function withTransactionRetry<T>(operation: () => Promise<T>): Promise<T> {
+type TxCallback<T> = (tx: Prisma.TransactionClient) => Promise<T>;
+
+export async function withTransactionRetry<T>(operation: () => Promise<T>): Promise<T>;
+export async function withTransactionRetry<T>(db: PrismaClient, operation: TxCallback<T>): Promise<T>;
+export async function withTransactionRetry<T>(
+  operationOrDb: (() => Promise<T>) | PrismaClient,
+  transactionOperation?: TxCallback<T>,
+): Promise<T> {
+  const operation =
+    typeof operationOrDb === "function"
+      ? operationOrDb
+      : () => operationOrDb.$transaction((tx) => transactionOperation!(tx));
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
