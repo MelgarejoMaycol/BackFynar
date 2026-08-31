@@ -439,7 +439,7 @@ export class LendingService {
               accountId: account.id,
               occurredAt,
               description: `Interés recibido · ${loan.borrower_name}`,
-              notes: input.notes ?? undefined,
+              notes: input.notes ?? null,
               metadata: { lending: true, loanId, role: "INTEREST_INCOME" },
             },
           });
