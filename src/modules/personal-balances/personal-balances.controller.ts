@@ -5,6 +5,8 @@ import {
   createPersonalBalanceSchema,
   personalBalanceEntrySchema,
   updatePersonalBalanceSchema,
+  createPersonSchema,
+  updatePersonSchema,
   uuid,
 } from "./personal-balances.schemas.js";
 import { personalBalancesService as service } from "./personal-balances.service.js";
@@ -90,8 +92,40 @@ export const settle = asyncRoute(async (request, response) => {
       request.workspace!.workspaceId,
       request.auth!.userId,
       parse(uuid, request.params.personalBalanceId),
+      parse(uuid, request.body.accountId),
     ),
   });
+});
+
+export const reverseEntry = asyncRoute(async (request, response) => {
+  response.json({ success: true, data: await service.reverseEntry(
+    request.workspace!.workspaceId,
+    request.auth!.userId,
+    parse(uuid, request.params.personalBalanceId),
+    parse(uuid, request.params.entryId),
+  ) });
+});
+
+export const listPeople = asyncRoute(async (request, response) => {
+  response.json({ success: true, data: await service.listPeople(
+    request.workspace!.workspaceId,
+    typeof request.query.q === "string" ? request.query.q : undefined,
+  ) });
+});
+export const createPerson = asyncRoute(async (request, response) => {
+  response.status(201).json({ success: true, data: await service.createPerson(
+    request.workspace!.workspaceId, request.auth!.userId, parse(createPersonSchema, request.body),
+  ) });
+});
+export const updatePerson = asyncRoute(async (request, response) => {
+  response.json({ success: true, data: await service.updatePerson(
+    request.workspace!.workspaceId, parse(uuid, request.params.personId), parse(updatePersonSchema, request.body),
+  ) });
+});
+export const archivePerson = asyncRoute(async (request, response) => {
+  response.json({ success: true, data: await service.archivePerson(
+    request.workspace!.workspaceId, parse(uuid, request.params.personId),
+  ) });
 });
 
 export const archive = asyncRoute(async (request, response) => {

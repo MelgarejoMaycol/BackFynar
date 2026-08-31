@@ -1,0 +1,4 @@
+ALTER TABLE personal_balance_entries
+  ALTER CONSTRAINT personal_balance_entries_account_fk DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE personal_balance_entries
+  ALTER CONSTRAINT personal_balance_entries_transaction_fk DEFERRABLE INITIALLY DEFERRED;

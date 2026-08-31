@@ -322,6 +322,7 @@ model FinancialAccount {
   cardPaymentExpectations                                        CardPaymentExpectation[]
   cashAdvancesFrom                                                CardCashAdvance[]        @relation("card_cash_advance_card")
   cashAdvancesTo                                                  CardCashAdvance[]        @relation("card_cash_advance_destination")
+  personalBalanceEntries                                         PersonalBalanceEntry[]
 
   @@unique([workspaceId, id])
   @@map("financial_accounts")
@@ -912,9 +913,84 @@ model Transaction {
   obligationOccurrence                                                 ObligationOccurrence?
   cardPurchase                                                         CardPurchase?
   cardCashAdvance                                                      CardCashAdvance?
+  personalBalanceEntry                                                 PersonalBalanceEntry?
 
   @@unique([workspaceId, id])
   @@map("transactions")
+}
+
+model FinancialPerson {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String            @map("workspace_id") @db.Uuid
+  name             String            @db.VarChar(120)
+  relationship     String?           @db.VarChar(80)
+  notes            String?
+  isActive         Boolean           @default(true) @map("is_active")
+  createdBy        String            @map("created_by") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+  archivedAt       DateTime?         @map("archived_at") @db.Timestamptz(6)
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator          User              @relation(fields: [createdBy], references: [id], onDelete: NoAction)
+  personalBalances PersonalBalance[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, isActive, name])
+  @@map("financial_people")
+}
+
+model PersonalBalance {
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String                 @map("workspace_id") @db.Uuid
+  personId         String                 @map("person_id") @db.Uuid
+  counterpartyName String                 @map("counterparty_name") @db.VarChar(120)
+  direction        String                 @db.VarChar(20)
+  originalAmount   Decimal                @map("original_amount") @db.Decimal(18, 2)
+  currentBalance   Decimal                @map("current_balance") @db.Decimal(18, 2)
+  currency         String                 @default("COP") @db.Char(3)
+  description      String?                @db.VarChar(250)
+  occurredOn       DateTime               @default(now()) @map("occurred_on") @db.Date
+  dueOn            DateTime?              @map("due_on") @db.Date
+  status           String                 @default("OPEN") @db.VarChar(20)
+  settledAt        DateTime?              @map("settled_at") @db.Timestamptz(6)
+  notes            String?
+  createdBy        String                 @map("created_by") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  person           FinancialPerson        @relation(fields: [workspaceId, personId], references: [workspaceId, id], onDelete: NoAction)
+  creator          User                   @relation(fields: [createdBy], references: [id], onDelete: NoAction)
+  entries          PersonalBalanceEntry[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, personId, direction, status])
+  @@map("personal_balances")
+}
+
+model PersonalBalanceEntry {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId       String           @map("workspace_id") @db.Uuid
+  balanceId         String           @map("balance_id") @db.Uuid
+  entryType         String           @map("entry_type") @db.VarChar(20)
+  amount            Decimal          @db.Decimal(18, 2)
+  resultingBalance  Decimal          @map("resulting_balance") @db.Decimal(18, 2)
+  accountId         String?          @map("account_id") @db.Uuid
+  transactionId     String?          @map("transaction_id") @db.Uuid
+  occurredAt        DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  notes             String?
+  reversedAt        DateTime?        @map("reversed_at") @db.Timestamptz(6)
+  createdBy         String           @map("created_by") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  balance           PersonalBalance  @relation(fields: [workspaceId, balanceId], references: [workspaceId, id], onDelete: Cascade)
+  account           FinancialAccount? @relation(fields: [workspaceId, accountId], references: [workspaceId, id], onDelete: NoAction)
+  transaction       Transaction?     @relation(fields: [workspaceId, transactionId], references: [workspaceId, id], onDelete: NoAction)
+  creator           User             @relation(fields: [createdBy], references: [id], onDelete: NoAction)
+
+  @@index([workspaceId, balanceId, occurredAt(sort: Desc)])
+  @@unique([workspaceId, transactionId])
+  @@map("personal_balance_entries")
 }
 
 model UserPreference {
@@ -970,6 +1046,9 @@ model User {
   workspaceMembersWorkspaceMembersInvitedByTousers WorkspaceMember[]        @relation("workspace_members_invited_byTousers")
   workspaceMembersWorkspaceMembersUserIdTousers    WorkspaceMember[]        @relation("workspace_members_user_idTousers")
   workspaces                                       Workspace[]
+  financialPeople                                 FinancialPerson[]
+  personalBalances                                PersonalBalance[]
+  personalBalanceEntries                          PersonalBalanceEntry[]
 
   @@map("users")
 }
@@ -1022,6 +1101,8 @@ model Workspace {
   userPreferences       UserPreference[]
   workspaceMembers      WorkspaceMember[]
   users                 User                   @relation(fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  financialPeople       FinancialPerson[]
+  personalBalances      PersonalBalance[]
 
   @@map("workspaces")
 }
