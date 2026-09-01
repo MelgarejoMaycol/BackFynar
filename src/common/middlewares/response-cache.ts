@@ -46,8 +46,14 @@ function storeEntry(key: string, entry: CacheEntry): void {
  * - Cualquier mutación invalida inmediatamente todo el cache del proceso.
  * - No cachea autenticación, health checks ni respuestas con Set-Cookie.
  * - El TTL corto evita mantener datos financieros antiguos durante demasiado tiempo.
+ * - Se desactiva en pruebas para que el estado en memoria no contamine casos de integración.
  */
 export function privateResponseCache(request: Request, response: Response, next: NextFunction): void {
+  if (process.env.NODE_ENV === "test") {
+    next();
+    return;
+  }
+
   if (request.method !== "GET") {
     if (cache.size > 0) cache.clear();
     next();
