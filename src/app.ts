@@ -9,6 +9,7 @@ import { errorHandler, notFoundHandler } from "./common/middlewares/error-handle
 import { AppError } from "./common/errors/app-error.js";
 import { requestContext } from "./common/middlewares/request-context.js";
 import { httpLogger } from "./common/middlewares/http-logger.js";
+import { privateResponseCache } from "./common/middlewares/response-cache.js";
 
 const app = express();
 if (env.TRUST_PROXY !== "false") {
@@ -61,6 +62,12 @@ app.use(
     limit: env.REQUEST_BODY_LIMIT,
   }),
 );
+
+/**
+ * Acelera lecturas repetidas dentro del mismo workspace sin compartir
+ * respuestas privadas entre usuarios. Las mutaciones invalidan el cache.
+ */
+app.use(privateResponseCache);
 
 /**
  * Punto de entrada público para comprobaciones de plataforma y visitantes.
