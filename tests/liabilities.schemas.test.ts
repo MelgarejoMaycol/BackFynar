@@ -12,12 +12,16 @@ import {
   prepaymentSchema,
 } from "../src/modules/debts/debts.schemas.js";
 import { LiabilitiesService } from "../src/modules/liabilities/liabilities.service.js";
-import { createObligationSchema } from "../src/modules/obligations/obligations.schemas.js";
+import {
+  createObligationSchema,
+  reverseOccurrencePaymentSchema,
+  updateOccurrencePaymentSchema,
+} from "../src/modules/obligations/obligations.schemas.js";
 describe("contratos de pasivos 9D-9M", () => {
   it("acepta un próximo pago informado sin inventar datos de extracto", () => {
-    expect(
-      cardPaymentExpectationSchema.parse({ amount: "180000", dueDate: "2026-09-05" }),
-    ).toEqual({ amount: "180000", dueDate: "2026-09-05" });
+    expect(cardPaymentExpectationSchema.parse({ amount: "180000", dueDate: "2026-09-05" })).toEqual(
+      { amount: "180000", dueDate: "2026-09-05" },
+    );
   });
   it("conserva el pago mínimo opcional y rechaza un saldo total ambiguo", () => {
     const value = cardPaymentExpectationSchema.parse({
@@ -83,6 +87,19 @@ describe("contratos de pasivos 9D-9M", () => {
     expect(prepaymentSchema.parse({ amount: "100", strategy: "REDUCE_TERM" }).strategy).toBe(
       "REDUCE_TERM",
     ));
+  it("valida correcciones y reversiones versionadas de pagos de obligación", () => {
+    expect(
+      updateOccurrencePaymentSchema.parse({
+        accountId: "00000000-0000-4000-8000-000000000001",
+        amount: "80000.00",
+        version: 2,
+      }),
+    ).toMatchObject({ amount: "80000.00", version: 2 });
+    expect(() => updateOccurrencePaymentSchema.parse({ version: 1 })).toThrow();
+    expect(
+      reverseOccurrencePaymentSchema.parse({ reason: "Cuenta incorrecta", version: 3 }),
+    ).toEqual({ reason: "Cuenta incorrecta", version: 3 });
+  });
   it("valida obligación variable", () =>
     expect(
       createObligationSchema.parse({

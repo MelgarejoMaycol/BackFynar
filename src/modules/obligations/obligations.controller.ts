@@ -5,6 +5,8 @@ import {
   createObligationSchema,
   occurrencePaymentSchema,
   occurrenceSchema,
+  reverseOccurrencePaymentSchema,
+  updateOccurrencePaymentSchema,
   updateObligationSchema,
   uuid,
 } from "./obligations.schemas.js";
@@ -80,6 +82,30 @@ export const pay = x(async (q, r) =>
       p(uuid, q.params.obligationId),
       p(uuid, q.params.occurrenceId),
       p(occurrencePaymentSchema, q.body),
+    ),
+  }),
+);
+export const updatePayment = x(async (q, r) =>
+  r.json({
+    success: true,
+    data: await s.updatePayment(
+      q.workspace!.workspaceId,
+      q.auth!.userId,
+      p(uuid, q.params.obligationId),
+      p(uuid, q.params.paymentId),
+      p(updateOccurrencePaymentSchema, q.body),
+    ),
+  }),
+);
+export const reversePayment = x(async (q, r) =>
+  r.json({
+    success: true,
+    data: await s.reversePayment(
+      q.workspace!.workspaceId,
+      q.auth!.userId,
+      p(uuid, q.params.obligationId),
+      p(uuid, q.params.paymentId),
+      p(reverseOccurrencePaymentSchema, q.body),
     ),
   }),
 );

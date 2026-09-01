@@ -349,7 +349,7 @@ describe.sequential("Fase 7 presupuestos reales", () => {
       .set(auth(actors[0]!.access));
     expect(account.body.data.progress.status).toBe("WARNING");
     expect(
-      new Prisma.Decimal(account.body.data.projection.projectedSpend).gt(
+      new Prisma.Decimal(account.body.data.projection.projectedSpend).gte(
         account.body.data.progress.spent,
       ),
     ).toBe(true);

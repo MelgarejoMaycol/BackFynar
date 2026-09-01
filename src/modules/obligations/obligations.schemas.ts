@@ -33,7 +33,27 @@ export const occurrencePaymentSchema = z
     amount: money,
     occurredAt: z.string().datetime({ offset: true }),
     idempotencyKey: z.string().min(8).max(100),
+    note: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
+export const updateOccurrencePaymentSchema = z
+  .object({
+    accountId: uuid.optional(),
+    amount: money.optional(),
+    occurredAt: z.string().datetime({ offset: true }).optional(),
+    note: z.string().trim().max(500).nullable().optional(),
+    version: z.number().int().positive(),
+  })
+  .strict()
+  .refine(({ version: _version, ...changes }) => Object.keys(changes).length > 0, {
+    message: "Debes enviar al menos un cambio",
+  });
+export const reverseOccurrencePaymentSchema = z
+  .object({
+    reason: z.string().trim().min(3).max(500),
+    version: z.number().int().positive(),
   })
   .strict();
 export type CreateObligationInput = z.infer<typeof createObligationSchema>;
 export type UpdateObligationInput = z.infer<typeof updateObligationSchema>;
+export type UpdateOccurrencePaymentInput = z.infer<typeof updateOccurrencePaymentSchema>;

@@ -34,6 +34,7 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     const ws = actors.map((x) => x.workspaceId).filter(Boolean),
       users = actors.map((x) => x.id).filter(Boolean);
     if (ws.length) {
+      await prisma.obligationPayment.deleteMany({ where: { workspaceId: { in: ws } } });
       await prisma.cardStatement.deleteMany({ where: { workspaceId: { in: ws } } });
       await prisma.cardPurchaseInstallment.deleteMany({ where: { workspaceId: { in: ws } } });
       await prisma.cardPurchase.deleteMany({ where: { workspaceId: { in: ws } } });
@@ -257,9 +258,9 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     const listedPaidCycle = listed.body.data.find(
       (item: { id: string }) => item.id === paidCycle.body.data.id,
     );
-    expect(
-      new Date(`${listedPaidCycle.nextPaymentDate}T00:00:00Z`).getTime(),
-    ).toBeGreaterThan(paidCycleRow.cardCyclePaidThrough!.getTime());
+    expect(new Date(`${listedPaidCycle.nextPaymentDate}T00:00:00Z`).getTime()).toBeGreaterThan(
+      paidCycleRow.cardCyclePaidThrough!.getTime(),
+    );
   });
   it("crea crédito y cronograma", async () => {
     const estimation = await request(app)
@@ -491,9 +492,9 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     expect(externalTransaction.accountId).toBeNull();
     expect(externalTransaction.metadata).toMatchObject({ paymentSource: "EXTERNAL" });
     expect(
-      (
-        await prisma.financialAccount.findUniqueOrThrow({ where: { id: asset } })
-      ).currentBalance.eq(accountBeforeExternal.currentBalance),
+      (await prisma.financialAccount.findUniqueOrThrow({ where: { id: asset } })).currentBalance.eq(
+        accountBeforeExternal.currentBalance,
+      ),
     ).toBe(true);
     const externalRetry = await request(app)
       .post(url(`/debts/${debt}/installments/${partialInstallment}/payments`))
@@ -717,6 +718,96 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     expect(overdue.status).toBe(201);
     overdueOccurrence = overdue.body.data.id;
   });
+  it("corrige cuenta y monto, protege el movimiento y revierte el pago de obligación", async () => {
+    const destination = await request(app)
+      .post(url("/accounts"))
+      .set(auth(actors[0]!.token))
+      .send({
+        name: `Nequi integridad ${suffix}`,
+        type: "E_WALLET",
+        nature: "ASSET",
+        currency: "COP",
+        openingBalance: "500000",
+      });
+    expect(destination.status).toBe(201);
+    const activePayments = await prisma.obligationPayment.findMany({
+      where: { occurrenceId: occurrence, reversedAt: null },
+      orderBy: { paidAt: "asc" },
+    });
+    expect(activePayments).toHaveLength(2);
+    const target = activePayments[1]!;
+    const sourceBefore = await prisma.financialAccount.findUniqueOrThrow({ where: { id: asset } });
+
+    const corrected = await request(app)
+      .patch(url(`/obligations/${obligation}/payments/${target.id}`))
+      .set(auth(actors[0]!.token))
+      .send({ accountId: destination.body.data.id, amount: "40000", version: 1 });
+    expect(corrected.status).toBe(200);
+    expect(await prisma.financialAccount.findUniqueOrThrow({ where: { id: asset } })).toMatchObject(
+      {
+        currentBalance: sourceBefore.currentBalance.plus("50000"),
+      },
+    );
+    expect(
+      await prisma.financialAccount.findUniqueOrThrow({ where: { id: destination.body.data.id } }),
+    ).toMatchObject({ currentBalance: new Prisma.Decimal("460000") });
+    expect(
+      await prisma.obligationOccurrence.findUniqueOrThrow({ where: { id: occurrence } }),
+    ).toMatchObject({
+      paidAmount: new Prisma.Decimal("70000"),
+      status: "PARTIAL",
+    });
+    expect(
+      await prisma.transaction.findUniqueOrThrow({ where: { id: target.transactionId } }),
+    ).toMatchObject({
+      accountId: destination.body.data.id,
+      amount: new Prisma.Decimal("40000"),
+      status: "CONFIRMED",
+    });
+
+    const protectedDelete = await request(app)
+      .delete(url(`/transactions/${target.transactionId}`))
+      .set(auth(actors[0]!.token))
+      .send({ version: 2 });
+    expect(protectedDelete.status).toBe(409);
+    expect(await prisma.obligationPayment.count({ where: { occurrenceId: occurrence } })).toBe(2);
+
+    const reversed = await request(app)
+      .post(url(`/obligations/${obligation}/payments/${target.id}/reverse`))
+      .set(auth(actors[0]!.token))
+      .send({ reason: "Corrección de prueba integral", version: 2 });
+    expect(reversed.status).toBe(200);
+    expect(
+      await prisma.financialAccount.findUniqueOrThrow({ where: { id: destination.body.data.id } }),
+    ).toMatchObject({ currentBalance: new Prisma.Decimal("500000") });
+    expect(
+      await prisma.obligationOccurrence.findUniqueOrThrow({ where: { id: occurrence } }),
+    ).toMatchObject({
+      paidAmount: new Prisma.Decimal("30000"),
+      status: "PARTIAL",
+    });
+    expect(
+      await prisma.transaction.findUniqueOrThrow({ where: { id: target.transactionId } }),
+    ).toMatchObject({
+      status: "CANCELLED",
+    });
+    expect(
+      await prisma.obligationPayment.findUniqueOrThrow({ where: { id: target.id } }),
+    ).toMatchObject({
+      reversedAt: expect.any(Date),
+      reversalReason: "Corrección de prueba integral",
+    });
+    const repaid = await request(app)
+      .post(url(`/obligations/${obligation}/occurrences/${occurrence}/payments`))
+      .set(auth(actors[0]!.token))
+      .send({
+        accountId: asset,
+        amount: "50000",
+        occurredAt: "2026-08-15T14:00:00Z",
+        idempotencyKey: `obl-repaid-${suffix}`,
+      });
+    expect(repaid.status).toBe(201);
+  });
   it("integra movimientos genéricos con compras, estimaciones y pagos sin extracto", async () => {
     const createExpense = (amount: string, note: string) =>
       request(app)
@@ -782,12 +873,13 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     expect(rejected.status).toBe(409);
     expect(rejected.body.error.message).toContain("No tienes cupo suficiente");
     expect(
-      (await prisma.financialAccount.findUniqueOrThrow({ where: { id: card } })).currentBalance
-        .isZero(),
+      (
+        await prisma.financialAccount.findUniqueOrThrow({ where: { id: card } })
+      ).currentBalance.isZero(),
     ).toBe(true);
-    expect(
-      await prisma.transaction.count({ where: { workspaceId: actors[0]!.workspaceId } }),
-    ).toBe(purchaseCountBeforeRejection);
+    expect(await prisma.transaction.count({ where: { workspaceId: actors[0]!.workspaceId } })).toBe(
+      purchaseCountBeforeRejection,
+    );
 
     const payable = await createExpense("80000", "generic-payable");
     expect(payable.status).toBe(201);

@@ -14,4 +14,10 @@ r.post(
   requirePermission("debts.write"),
   c.pay,
 );
+r.patch("/:obligationId/payments/:paymentId", requirePermission("debts.write"), c.updatePayment);
+r.post(
+  "/:obligationId/payments/:paymentId/reverse",
+  requirePermission("debts.write"),
+  c.reversePayment,
+);
 export default r;

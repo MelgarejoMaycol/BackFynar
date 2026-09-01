@@ -400,6 +400,15 @@ export class TransactionsService {
     return this.repository.transaction(async (tx) => {
       const current = await this.repository.lockTransaction(tx, id, workspaceId);
       if (!current) throw notFound();
+      const obligationPayment = await tx.obligationPayment.findUnique({
+        where: { transactionId: id },
+        select: { id: true, occurrence: { select: { obligationId: true } } },
+      });
+      if (obligationPayment)
+        throw new ConflictError(
+          "Movimiento protegido por pago de obligación",
+          "Este movimiento fue generado por un pago de obligación. Edita el pago original para conservar saldos y estado sincronizados.",
+        );
       assertSupportedFinancialType(current.type);
       if (current.version !== input.version) throw versionConflict();
       if (current.status !== "CONFIRMED")
@@ -488,6 +497,15 @@ export class TransactionsService {
     return this.repository.transaction(async (tx) => {
       const current = await this.repository.lockTransaction(tx, id, workspaceId);
       if (!current) throw notFound();
+      const obligationPayment = await tx.obligationPayment.findUnique({
+        where: { transactionId: id },
+        select: { id: true },
+      });
+      if (obligationPayment)
+        throw new ConflictError(
+          "Movimiento protegido por pago de obligación",
+          "Este movimiento pertenece a un pago de obligación. Reviértelo desde la obligación para conservar el historial y los saldos.",
+        );
       assertSupportedFinancialType(current.type);
       if (current.status === "CANCELLED") return { mode: "CANCELLED" as const };
       if (current.version !== version) throw versionConflict();

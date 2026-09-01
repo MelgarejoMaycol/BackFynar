@@ -3,7 +3,11 @@ import { ConflictError, NotFoundError } from "../../common/errors/app-error.js";
 import { prisma } from "../../database/prisma.js";
 import { withTransactionRetry } from "../../database/transaction-retry.js";
 import { recordDeletionAudit } from "../../common/audit/deletion-audit.js";
-import type { CreateObligationInput, UpdateObligationInput } from "./obligations.schemas.js";
+import type {
+  CreateObligationInput,
+  UpdateObligationInput,
+  UpdateOccurrencePaymentInput,
+} from "./obligations.schemas.js";
 import {
   obligationEventWhere,
   syncFinancialEvent,
@@ -47,6 +51,80 @@ export class ObligationsService {
   constructor(private db: PrismaClient = prisma) {}
   private tx<T>(f: (t: Prisma.TransactionClient) => Promise<T>) {
     return withTransactionRetry(() => this.db.$transaction(f, { isolationLevel: "Serializable" }));
+  }
+  private async lockOccurrence(t: Prisma.TransactionClient, w: string, id: string) {
+    await t.$queryRaw`SELECT id FROM obligation_occurrences WHERE workspace_id = ${w}::uuid AND id = ${id}::uuid FOR UPDATE`;
+  }
+  private async lockAccounts(t: Prisma.TransactionClient, ids: string[]) {
+    const unique = [...new Set(ids)].sort();
+    if (unique.length)
+      await t.$queryRaw`SELECT id FROM financial_accounts WHERE id IN (${Prisma.join(unique.map((id) => Prisma.sql`${id}::uuid`))}) ORDER BY id FOR UPDATE`;
+  }
+  private async recalculateOccurrence(
+    t: Prisma.TransactionClient,
+    w: string,
+    occurrenceId: string,
+  ) {
+    const occurrence = await t.obligationOccurrence.findFirst({
+      where: { id: occurrenceId, workspaceId: w },
+    });
+    if (!occurrence) throw new NotFoundError("Ocurrencia no encontrada");
+    const payments = await t.obligationPayment.findMany({
+      where: { workspaceId: w, occurrenceId, reversedAt: null },
+      orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }],
+    });
+    const paidAmount = payments.reduce(
+      (sum, payment) => sum.plus(payment.amount),
+      new Prisma.Decimal(0),
+    );
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const status = paidAmount.gte(occurrence.amount)
+      ? "PAID"
+      : paidAmount.gt(0)
+        ? "PARTIAL"
+        : occurrence.dueDate < today
+          ? "OVERDUE"
+          : "PENDING";
+    const latest = payments[0] ?? null;
+    await t.obligationOccurrence.update({
+      where: { id: occurrenceId },
+      data: {
+        paidAmount,
+        status,
+        paidAt: status === "PAID" ? (latest?.paidAt ?? null) : null,
+        paymentAccountId: latest?.accountId ?? null,
+        transactionId: latest?.transactionId ?? null,
+      },
+    });
+    await syncFinancialEvent(t, obligationEventWhere(w, occurrenceId), {
+      isCompleted: status === "PAID",
+      remainingAmount: Prisma.Decimal.max(0, occurrence.amount.minus(paidAmount)),
+    });
+    return { occurrence, paidAmount, status };
+  }
+  private audit(
+    t: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      userId: string;
+      paymentId: string;
+      action: string;
+      oldData?: Prisma.InputJsonValue;
+      newData?: Prisma.InputJsonValue;
+    },
+  ) {
+    return t.auditLog.create({
+      data: {
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        entityType: "OBLIGATION_PAYMENT",
+        entityId: input.paymentId,
+        action: input.action,
+        ...(input.oldData !== undefined ? { oldData: input.oldData } : {}),
+        ...(input.newData !== undefined ? { newData: input.newData } : {}),
+      },
+    });
   }
   async create(w: string, i: CreateObligationInput) {
     return this.tx(async (t) => {
@@ -112,14 +190,36 @@ export class ObligationsService {
           workspaceId: w,
           deletedAt: archived ? { not: null } : null,
         },
-        include: { recurrenceRules: true, occurrences: { orderBy: { dueDate: "asc" } } },
+        include: {
+          recurrenceRules: true,
+          occurrences: {
+            orderBy: { dueDate: "asc" },
+            include: {
+              payments: {
+                include: { account: { select: { id: true, name: true, isActive: true } } },
+                orderBy: { paidAt: "desc" },
+              },
+            },
+          },
+        },
       })
       .then((a) => a.map(pub));
   }
   async get(w: string, id: string) {
     const x = await this.db.recurringObligation.findFirst({
       where: { id, workspaceId: w },
-      include: { recurrenceRules: true, occurrences: true },
+      include: {
+        recurrenceRules: true,
+        occurrences: {
+          orderBy: { dueDate: "asc" },
+          include: {
+            payments: {
+              include: { account: { select: { id: true, name: true, isActive: true } } },
+              orderBy: { paidAt: "desc" },
+            },
+          },
+        },
+      },
     });
     if (!x) throw new NotFoundError("Obligación no encontrada");
     return pub(x);
@@ -359,9 +459,16 @@ export class ObligationsService {
     u: string,
     id: string,
     occurrenceId: string,
-    input: { accountId: string; amount: string; occurredAt: string; idempotencyKey: string },
+    input: {
+      accountId: string;
+      amount: string;
+      occurredAt: string;
+      idempotencyKey: string;
+      note?: string | null | undefined;
+    },
   ) {
     return this.tx(async (t) => {
+      await this.lockOccurrence(t, w, occurrenceId);
       const o = await t.obligationOccurrence.findFirst({
         where: { id: occurrenceId, obligationId: id, workspaceId: w },
         include: { obligation: { include: { recurrenceRules: true } } },
@@ -387,6 +494,7 @@ export class ObligationsService {
       });
       if (!o || !a) throw new NotFoundError("Ocurrencia o cuenta no encontrada");
       if (a.currency !== o.obligation.currency) throw new ConflictError("Moneda incompatible");
+      await this.lockAccounts(t, [a.id]);
       const amount = D(input.amount),
         remaining = o.amount.minus(o.paidAmount);
       if (amount.gt(remaining)) throw new ConflictError("Pago superior no permitido");
@@ -403,29 +511,53 @@ export class ObligationsService {
           occurredAt: new Date(input.occurredAt),
           description: `Pago ${o.obligation.name}`,
           externalReference: input.idempotencyKey,
-          metadata: { obligationOccurrenceId: o.id },
+          metadata: {
+            sourceType: "OBLIGATION_PAYMENT",
+            obligationId: o.obligationId,
+            obligationOccurrenceId: o.id,
+          },
         },
       });
       await t.financialAccount.update({
         where: { id: a.id },
         data: { currentBalance: { decrement: amount } },
       });
-      const paid = o.paidAmount.plus(amount);
-      await t.obligationOccurrence.update({
-        where: { id: o.id },
+      const payment = await t.obligationPayment.create({
         data: {
-          paidAmount: paid,
-          status: paid.gte(o.amount) ? "PAID" : "PARTIAL",
-          paidAt: paid.gte(o.amount) ? new Date(input.occurredAt) : null,
-          paymentAccountId: a.id,
+          workspaceId: w,
+          occurrenceId: o.id,
+          accountId: a.id,
+          transactionId: tr.id,
+          amount,
+          paidAt: new Date(input.occurredAt),
+          note: input.note ?? null,
+        },
+      });
+      await t.transaction.update({
+        where: { id: tr.id },
+        data: {
+          metadata: {
+            sourceType: "OBLIGATION_PAYMENT",
+            sourceId: payment.id,
+            obligationId: o.obligationId,
+            obligationOccurrenceId: o.id,
+          },
+        },
+      });
+      const { status } = await this.recalculateOccurrence(t, w, o.id);
+      await this.audit(t, {
+        workspaceId: w,
+        userId: u,
+        paymentId: payment.id,
+        action: "PAYMENT_CREATED",
+        newData: {
+          accountId: a.id,
+          amount: amount.toFixed(2),
+          occurredAt: input.occurredAt,
           transactionId: tr.id,
         },
       });
-      await syncFinancialEvent(t, obligationEventWhere(w, o.id), {
-        isCompleted: paid.gte(o.amount),
-        remainingAmount: Prisma.Decimal.max(0, o.amount.minus(paid)),
-      });
-      if (paid.gte(o.amount) && o.obligation.status === "ACTIVE") {
+      if (status === "PAID" && o.obligation.status === "ACTIVE") {
         const rule = o.obligation.recurrenceRules;
         const nextDueDate = nextRecurrenceDate(o.dueDate, rule.frequency, rule.intervalValue);
         if (!rule.endsOn || nextDueDate <= rule.endsOn) {
@@ -478,7 +610,178 @@ export class ObligationsService {
           });
         }
       }
-      return { transactionId: tr.id, idempotent: false };
+      return { paymentId: payment.id, transactionId: tr.id, idempotent: false };
+    });
+  }
+
+  async updatePayment(
+    w: string,
+    u: string,
+    obligationId: string,
+    paymentId: string,
+    input: UpdateOccurrencePaymentInput,
+  ) {
+    return this.tx(async (t) => {
+      const current = await t.obligationPayment.findFirst({
+        where: {
+          id: paymentId,
+          workspaceId: w,
+          occurrence: { obligationId },
+        },
+        include: { occurrence: { include: { obligation: true } }, transaction: true },
+      });
+      if (!current) throw new NotFoundError("Pago no encontrado");
+      await this.lockOccurrence(t, w, current.occurrenceId);
+      if (current.reversedAt)
+        throw new ConflictError("Pago revertido", "Un pago revertido no se puede editar.");
+      if (current.version !== input.version)
+        throw new ConflictError(
+          "Pago modificado",
+          "El pago cambió. Actualiza e inténtalo de nuevo.",
+        );
+
+      const accountId = input.accountId ?? current.accountId;
+      await this.lockAccounts(t, [current.accountId, accountId]);
+      const account = await t.financialAccount.findFirst({
+        where: { id: accountId, workspaceId: w, isActive: true, deletedAt: null, nature: "ASSET" },
+      });
+      if (!account) throw new NotFoundError("Cuenta activa no encontrada");
+      if (account.currency !== current.occurrence.obligation.currency)
+        throw new ConflictError("Moneda incompatible");
+
+      const amount = input.amount ? D(input.amount) : current.amount;
+      const otherPayments = await t.obligationPayment.aggregate({
+        where: {
+          workspaceId: w,
+          occurrenceId: current.occurrenceId,
+          reversedAt: null,
+          id: { not: current.id },
+        },
+        _sum: { amount: true },
+      });
+      if (amount.plus(otherPayments._sum.amount ?? 0).gt(current.occurrence.amount))
+        throw new ConflictError("Pago superior no permitido");
+
+      await t.financialAccount.update({
+        where: { id: current.accountId },
+        data: { currentBalance: { increment: current.amount } },
+      });
+      await t.financialAccount.update({
+        where: { id: accountId },
+        data: { currentBalance: { decrement: amount } },
+      });
+      const paidAt = input.occurredAt ? new Date(input.occurredAt) : current.paidAt;
+      const updatedCount = await t.obligationPayment.updateMany({
+        where: { id: current.id, workspaceId: w, version: input.version, reversedAt: null },
+        data: {
+          accountId,
+          amount,
+          paidAt,
+          ...(input.note !== undefined ? { note: input.note } : {}),
+          version: { increment: 1 },
+        },
+      });
+      if (updatedCount.count !== 1)
+        throw new ConflictError(
+          "Pago modificado",
+          "El pago cambió. Actualiza e inténtalo de nuevo.",
+        );
+      await t.transaction.update({
+        where: { id: current.transactionId },
+        data: {
+          accountId,
+          amount,
+          currency: account.currency,
+          occurredAt: paidAt,
+          ...(input.note !== undefined ? { notes: input.note } : {}),
+          version: { increment: 1 },
+        },
+      });
+      await this.recalculateOccurrence(t, w, current.occurrenceId);
+      const accountChanged = accountId !== current.accountId;
+      await this.audit(t, {
+        workspaceId: w,
+        userId: u,
+        paymentId: current.id,
+        action: accountChanged ? "PAYMENT_ACCOUNT_CHANGED" : "PAYMENT_UPDATED",
+        oldData: {
+          accountId: current.accountId,
+          amount: current.amount.toFixed(2),
+          occurredAt: current.paidAt.toISOString(),
+          note: current.note,
+        },
+        newData: {
+          accountId,
+          amount: amount.toFixed(2),
+          occurredAt: paidAt.toISOString(),
+          note: input.note !== undefined ? input.note : current.note,
+        },
+      });
+      return t.obligationPayment.findUniqueOrThrow({
+        where: { id: current.id },
+        include: { account: { select: { id: true, name: true, isActive: true } } },
+      });
+    });
+  }
+
+  async reversePayment(
+    w: string,
+    u: string,
+    obligationId: string,
+    paymentId: string,
+    input: { reason: string; version: number },
+  ) {
+    return this.tx(async (t) => {
+      const current = await t.obligationPayment.findFirst({
+        where: { id: paymentId, workspaceId: w, occurrence: { obligationId } },
+        include: { transaction: true },
+      });
+      if (!current) throw new NotFoundError("Pago no encontrado");
+      await this.lockOccurrence(t, w, current.occurrenceId);
+      if (current.reversedAt) return { mode: "REVERSED" as const, idempotent: true };
+      if (current.version !== input.version)
+        throw new ConflictError(
+          "Pago modificado",
+          "El pago cambió. Actualiza e inténtalo de nuevo.",
+        );
+      await this.lockAccounts(t, [current.accountId]);
+      await t.financialAccount.update({
+        where: { id: current.accountId },
+        data: { currentBalance: { increment: current.amount } },
+      });
+      const now = new Date();
+      const reversed = await t.obligationPayment.updateMany({
+        where: { id: current.id, workspaceId: w, version: input.version, reversedAt: null },
+        data: {
+          reversedAt: now,
+          reversedBy: u,
+          reversalReason: input.reason,
+          version: { increment: 1 },
+        },
+      });
+      if (reversed.count !== 1)
+        throw new ConflictError(
+          "Pago modificado",
+          "El pago cambió. Actualiza e inténtalo de nuevo.",
+        );
+      await t.transaction.update({
+        where: { id: current.transactionId },
+        data: { status: "CANCELLED", deletedAt: now, version: { increment: 1 } },
+      });
+      await this.recalculateOccurrence(t, w, current.occurrenceId);
+      await this.audit(t, {
+        workspaceId: w,
+        userId: u,
+        paymentId: current.id,
+        action: "PAYMENT_REVERSED",
+        oldData: {
+          accountId: current.accountId,
+          amount: current.amount.toFixed(2),
+          transactionId: current.transactionId,
+        },
+        newData: { reversedAt: now.toISOString(), reason: input.reason },
+      });
+      return { mode: "REVERSED" as const, idempotent: false };
     });
   }
 }

@@ -208,36 +208,36 @@ model DebtPayment {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Debt {
-  id                  String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId         String               @map("workspace_id") @db.Uuid
-  liabilityAccountId  String?              @map("liability_account_id") @db.Uuid
-  name                String               @db.VarChar(150)
-  lenderName          String?              @map("lender_name") @db.VarChar(150)
+  id                  String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String                 @map("workspace_id") @db.Uuid
+  liabilityAccountId  String?                @map("liability_account_id") @db.Uuid
+  name                String                 @db.VarChar(150)
+  lenderName          String?                @map("lender_name") @db.VarChar(150)
   type                debt_type
-  status              debt_status          @default(ACTIVE)
-  currency            String               @default("COP") @db.Char(3)
-  originalAmount      Decimal              @map("original_amount") @db.Decimal(18, 2)
-  currentBalance      Decimal              @map("current_balance") @db.Decimal(18, 2)
-  interestRate        Decimal              @default(0) @map("interest_rate") @db.Decimal(10, 7)
-  interestRateBasis   interest_rate_basis  @default(EFFECTIVE_ANNUAL) @map("interest_rate_basis")
-  interestType        interest_type        @default(FIXED) @map("interest_type")
-  termMonths          Int?                 @map("term_months")
+  status              debt_status            @default(ACTIVE)
+  currency            String                 @default("COP") @db.Char(3)
+  originalAmount      Decimal                @map("original_amount") @db.Decimal(18, 2)
+  currentBalance      Decimal                @map("current_balance") @db.Decimal(18, 2)
+  interestRate        Decimal                @default(0) @map("interest_rate") @db.Decimal(10, 7)
+  interestRateBasis   interest_rate_basis    @default(EFFECTIVE_ANNUAL) @map("interest_rate_basis")
+  interestType        interest_type          @default(FIXED) @map("interest_type")
+  termMonths          Int?                   @map("term_months")
   paymentFrequency    debt_payment_frequency @default(MONTHLY) @map("payment_frequency")
-  installmentAmount   Decimal?             @map("installment_amount") @db.Decimal(18, 2)
-  disbursementDate    DateTime?            @map("disbursement_date") @db.Date
-  firstPaymentDate    DateTime?            @map("first_payment_date") @db.Date
-  nextDueDate         DateTime?            @map("next_due_date") @db.Date
-  paymentDay          Int?                 @map("payment_day") @db.SmallInt
-  estimatedEndDate    DateTime?            @map("estimated_end_date") @db.Date
+  installmentAmount   Decimal?               @map("installment_amount") @db.Decimal(18, 2)
+  disbursementDate    DateTime?              @map("disbursement_date") @db.Date
+  firstPaymentDate    DateTime?              @map("first_payment_date") @db.Date
+  nextDueDate         DateTime?              @map("next_due_date") @db.Date
+  paymentDay          Int?                   @map("payment_day") @db.SmallInt
+  estimatedEndDate    DateTime?              @map("estimated_end_date") @db.Date
   notes               String?
-  metadata            Json                 @default("{}")
-  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime             @default(now()) @map("updated_at") @db.Timestamptz(6)
-  deletedAt           DateTime?            @map("deleted_at") @db.Timestamptz(6)
+  metadata            Json                   @default("{}")
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime               @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?              @map("deleted_at") @db.Timestamptz(6)
   debtInstallments    DebtInstallment[]
   debtPayments        DebtPayment[]
-  financialAccounts   FinancialAccount?    @relation(fields: [workspaceId, liabilityAccountId], references: [workspaceId, id], onDelete: NoAction, onUpdate: NoAction)
-  workspaces          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  financialAccounts   FinancialAccount?      @relation(fields: [workspaceId, liabilityAccountId], references: [workspaceId, id], onDelete: NoAction, onUpdate: NoAction)
+  workspaces          Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   financialEvents     FinancialEvent[]
   debtReconciliations DebtReconciliation[]
 
@@ -297,7 +297,7 @@ model FinancialAccount {
   creditLimit                                                     Decimal?                 @map("credit_limit") @db.Decimal(18, 2)
   billingDay                                                      Int?                     @map("billing_day") @db.SmallInt
   paymentDueDay                                                   Int?                     @map("payment_due_day") @db.SmallInt
-  cardCyclePaidThrough                                           DateTime?                @map("card_cycle_paid_through") @db.Date
+  cardCyclePaidThrough                                            DateTime?                @map("card_cycle_paid_through") @db.Date
   referencePeriodicRate                                           Decimal?                 @map("reference_periodic_rate") @db.Decimal(10, 7)
   referenceRateSource                                             String?                  @map("reference_rate_source") @db.VarChar(20)
   color                                                           String?                  @db.VarChar(20)
@@ -317,12 +317,16 @@ model FinancialAccount {
   transactionsTransactionsAccountIdTofinancialAccounts            Transaction[]            @relation("transactions_account_idTofinancial_accounts")
   transactionsTransactionsDestinationAccountIdTofinancialAccounts Transaction[]            @relation("transactions_destination_account_idTofinancial_accounts")
   obligationOccurrencesPaidFrom                                   ObligationOccurrence[]   @relation("obligation_occurrence_payment_account")
+  obligationPayments                                              ObligationPayment[]
   cardPurchases                                                   CardPurchase[]
   cardStatements                                                  CardStatement[]
-  cardPaymentExpectations                                        CardPaymentExpectation[]
+  cardPaymentExpectations                                         CardPaymentExpectation[]
   cashAdvancesFrom                                                CardCashAdvance[]        @relation("card_cash_advance_card")
   cashAdvancesTo                                                  CardCashAdvance[]        @relation("card_cash_advance_destination")
-  personalBalanceEntries                                         PersonalBalanceEntry[]
+  personalBalanceEntries                                          PersonalBalanceEntry[]
+  issuedLoansReceivable                                           IssuedLoan[]             @relation("issued_loan_receivable")
+  issuedLoansSource                                               IssuedLoan[]             @relation("issued_loan_source")
+  issuedLoanPaymentsReceived                                      IssuedLoanPayment[]
 
   @@unique([workspaceId, id])
   @@map("financial_accounts")
@@ -330,43 +334,43 @@ model FinancialAccount {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model FinancialEvent {
-  id                       String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId              String               @map("workspace_id") @db.Uuid
-  type                     event_type
-  title                    String               @db.VarChar(160)
-  description              String?
-  amount                   Decimal?             @db.Decimal(18, 2)
-  currency                 String               @default("COP") @db.Char(3)
-  startsAt                 DateTime             @map("starts_at") @db.Timestamptz(6)
-  endsAt                   DateTime?            @map("ends_at") @db.Timestamptz(6)
-  recurrenceRuleId         String?              @map("recurrence_rule_id") @db.Uuid
-  relatedTransactionId     String?              @map("related_transaction_id") @db.Uuid
-  relatedDebtId            String?              @map("related_debt_id") @db.Uuid
-  relatedDebtInstallmentId String?              @map("related_debt_installment_id") @db.Uuid
-  relatedObligationId      String?              @map("related_obligation_id") @db.Uuid
-  relatedObligationOccurrenceId String?         @map("related_obligation_occurrence_id") @db.Uuid
-  relatedCardStatementId   String?               @map("related_card_statement_id") @db.Uuid
-  relatedCardPaymentExpectationId String?         @map("related_card_payment_expectation_id") @db.Uuid
-  relatedGoalId            String?              @map("related_goal_id") @db.Uuid
-  isCompleted              Boolean              @default(false) @map("is_completed")
-  createdAt                DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime             @default(now()) @map("updated_at") @db.Timestamptz(6)
-  recurrenceRules          RecurrenceRule?      @relation(fields: [workspaceId, recurrenceRuleId], references: [workspaceId, id], onDelete: NoAction, onUpdate: NoAction)
-  debts                    Debt?                @relation(fields: [workspaceId, relatedDebtId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
-  debtInstallments         DebtInstallment?     @relation(fields: [workspaceId, relatedDebtId, relatedDebtInstallmentId], references: [workspaceId, debtId, id], onDelete: Cascade, onUpdate: NoAction)
-  recurringObligations     RecurringObligation? @relation(fields: [workspaceId, relatedObligationId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
-  obligationOccurrence     ObligationOccurrence? @relation(fields: [workspaceId, relatedObligationOccurrenceId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
-  cardStatement            CardStatement?        @relation(fields: [workspaceId, relatedCardStatementId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
-  cardPaymentExpectation   CardPaymentExpectation? @relation(fields: [workspaceId, relatedCardPaymentExpectationId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
-  savingsGoals             SavingsGoal?         @relation(fields: [relatedGoalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  transactions             Transaction?         @relation(fields: [relatedTransactionId], references: [id], onUpdate: NoAction)
-  workspaces               Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                     String                  @map("workspace_id") @db.Uuid
+  type                            event_type
+  title                           String                  @db.VarChar(160)
+  description                     String?
+  amount                          Decimal?                @db.Decimal(18, 2)
+  currency                        String                  @default("COP") @db.Char(3)
+  startsAt                        DateTime                @map("starts_at") @db.Timestamptz(6)
+  endsAt                          DateTime?               @map("ends_at") @db.Timestamptz(6)
+  recurrenceRuleId                String?                 @map("recurrence_rule_id") @db.Uuid
+  relatedTransactionId            String?                 @map("related_transaction_id") @db.Uuid
+  relatedDebtId                   String?                 @map("related_debt_id") @db.Uuid
+  relatedDebtInstallmentId        String?                 @map("related_debt_installment_id") @db.Uuid
+  relatedObligationId             String?                 @map("related_obligation_id") @db.Uuid
+  relatedObligationOccurrenceId   String?                 @map("related_obligation_occurrence_id") @db.Uuid
+  relatedCardStatementId          String?                 @map("related_card_statement_id") @db.Uuid
+  relatedCardPaymentExpectationId String?                 @map("related_card_payment_expectation_id") @db.Uuid
+  relatedGoalId                   String?                 @map("related_goal_id") @db.Uuid
+  isCompleted                     Boolean                 @default(false) @map("is_completed")
+  createdAt                       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime                @default(now()) @map("updated_at") @db.Timestamptz(6)
+  recurrenceRules                 RecurrenceRule?         @relation(fields: [workspaceId, recurrenceRuleId], references: [workspaceId, id], onDelete: NoAction, onUpdate: NoAction)
+  debts                           Debt?                   @relation(fields: [workspaceId, relatedDebtId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  debtInstallments                DebtInstallment?        @relation(fields: [workspaceId, relatedDebtId, relatedDebtInstallmentId], references: [workspaceId, debtId, id], onDelete: Cascade, onUpdate: NoAction)
+  recurringObligations            RecurringObligation?    @relation(fields: [workspaceId, relatedObligationId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  obligationOccurrence            ObligationOccurrence?   @relation(fields: [workspaceId, relatedObligationOccurrenceId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  cardStatement                   CardStatement?          @relation(fields: [workspaceId, relatedCardStatementId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  cardPaymentExpectation          CardPaymentExpectation? @relation(fields: [workspaceId, relatedCardPaymentExpectationId], references: [workspaceId, id], onDelete: Cascade, onUpdate: NoAction)
+  savingsGoals                    SavingsGoal?            @relation(fields: [relatedGoalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  transactions                    Transaction?            @relation(fields: [relatedTransactionId], references: [id], onUpdate: NoAction)
+  workspaces                      Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([workspaceId, startsAt], map: "idx_events_workspace_start")
   @@unique([workspaceId, relatedDebtId, relatedDebtInstallmentId])
   @@unique([workspaceId, relatedObligationOccurrenceId])
   @@unique([workspaceId, relatedCardStatementId])
   @@unique([workspaceId, relatedCardPaymentExpectationId])
+  @@index([workspaceId, startsAt], map: "idx_events_workspace_start")
   @@map("financial_events")
 }
 
@@ -552,6 +556,7 @@ model ObligationOccurrence {
   obligation       RecurringObligation @relation(fields: [workspaceId, obligationId], references: [workspaceId, id], onDelete: Cascade)
   paymentAccount   FinancialAccount?   @relation("obligation_occurrence_payment_account", fields: [workspaceId, paymentAccountId], references: [workspaceId, id])
   transaction      Transaction?        @relation(fields: [workspaceId, transactionId], references: [workspaceId, id])
+  payments         ObligationPayment[]
   financialEvent   FinancialEvent?
 
   @@unique([workspaceId, id])
@@ -559,6 +564,31 @@ model ObligationOccurrence {
   @@unique([workspaceId, transactionId])
   @@index([workspaceId, status, dueDate])
   @@map("obligation_occurrences")
+}
+
+model ObligationPayment {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId    String               @map("workspace_id") @db.Uuid
+  occurrenceId   String               @map("occurrence_id") @db.Uuid
+  accountId      String               @map("account_id") @db.Uuid
+  transactionId  String               @unique @map("transaction_id") @db.Uuid
+  amount         Decimal              @db.Decimal(18, 2)
+  paidAt         DateTime             @map("paid_at") @db.Timestamptz(6)
+  note           String?              @db.VarChar(500)
+  reversedAt     DateTime?            @map("reversed_at") @db.Timestamptz(6)
+  reversedBy     String?              @map("reversed_by") @db.Uuid
+  reversalReason String?              @map("reversal_reason") @db.VarChar(500)
+  version        Int                  @default(1)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  occurrence     ObligationOccurrence @relation(fields: [workspaceId, occurrenceId], references: [workspaceId, id], onDelete: Cascade)
+  account        FinancialAccount     @relation(fields: [workspaceId, accountId], references: [workspaceId, id], onDelete: Restrict)
+  transaction    Transaction          @relation(fields: [workspaceId, transactionId], references: [workspaceId, id], onDelete: Restrict)
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, transactionId])
+  @@index([workspaceId, occurrenceId, reversedAt])
+  @@map("obligation_payments")
 }
 
 model CardPurchase {
@@ -626,21 +656,21 @@ model CardStatement {
 }
 
 model CardPaymentExpectation {
-  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId          String                @map("workspace_id") @db.Uuid
-  cardAccountId        String                @map("card_account_id") @db.Uuid
-  amount               Decimal               @db.Decimal(18, 2)
-  dueDate              DateTime              @map("due_date") @db.Date
-  minimumPayment       Decimal?              @map("minimum_payment") @db.Decimal(18, 2)
-  reportedTotalBalance Decimal?              @map("reported_total_balance") @db.Decimal(18, 2)
-  paidAmount           Decimal               @default(0) @map("paid_amount") @db.Decimal(18, 2)
-  status               installment_status    @default(PENDING)
-  createdBy            String                @map("created_by") @db.Uuid
-  supersededAt         DateTime?             @map("superseded_at") @db.Timestamptz(6)
-  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
-  cardAccount          FinancialAccount      @relation(fields: [workspaceId, cardAccountId], references: [workspaceId, id])
-  creator              User                  @relation(fields: [createdBy], references: [id])
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String             @map("workspace_id") @db.Uuid
+  cardAccountId        String             @map("card_account_id") @db.Uuid
+  amount               Decimal            @db.Decimal(18, 2)
+  dueDate              DateTime           @map("due_date") @db.Date
+  minimumPayment       Decimal?           @map("minimum_payment") @db.Decimal(18, 2)
+  reportedTotalBalance Decimal?           @map("reported_total_balance") @db.Decimal(18, 2)
+  paidAmount           Decimal            @default(0) @map("paid_amount") @db.Decimal(18, 2)
+  status               installment_status @default(PENDING)
+  createdBy            String             @map("created_by") @db.Uuid
+  supersededAt         DateTime?          @map("superseded_at") @db.Timestamptz(6)
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+  cardAccount          FinancialAccount   @relation(fields: [workspaceId, cardAccountId], references: [workspaceId, id])
+  creator              User               @relation(fields: [createdBy], references: [id])
   financialEvent       FinancialEvent?
 
   @@unique([workspaceId, id])
@@ -657,7 +687,7 @@ model CardCashAdvance {
   amount               Decimal          @db.Decimal(18, 2)
   feeAmount            Decimal          @default(0) @map("fee_amount") @db.Decimal(18, 2)
   periodicRate         Decimal?         @map("periodic_rate") @db.Decimal(10, 7)
-  rateSource            String           @default("ESTIMATED") @map("rate_source") @db.VarChar(20)
+  rateSource           String           @default("ESTIMATED") @map("rate_source") @db.VarChar(20)
   installmentCount     Int?             @map("installment_count")
   notes                String?
   occurredAt           DateTime         @map("occurred_at") @db.Timestamptz(6)
@@ -911,9 +941,12 @@ model Transaction {
   recurrenceRules                                                      RecurrenceRule?         @relation(fields: [recurrenceRuleId], references: [id], onUpdate: NoAction)
   workspaces                                                           Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   obligationOccurrence                                                 ObligationOccurrence?
+  obligationPayment                                                    ObligationPayment?
   cardPurchase                                                         CardPurchase?
   cardCashAdvance                                                      CardCashAdvance?
   personalBalanceEntry                                                 PersonalBalanceEntry?
+  issuedLoanPrincipalPayments                                          IssuedLoanPayment[]     @relation("issued_loan_principal_transaction")
+  issuedLoanInterestPayments                                           IssuedLoanPayment[]     @relation("issued_loan_interest_transaction")
 
   @@unique([workspaceId, id])
   @@map("transactions")
@@ -933,10 +966,112 @@ model FinancialPerson {
   workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   creator          User              @relation(fields: [createdBy], references: [id], onDelete: NoAction)
   personalBalances PersonalBalance[]
+  issuedLoans      IssuedLoan[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId, isActive, name])
   @@map("financial_people")
+}
+
+model IssuedLoan {
+  id                  String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String                  @map("workspace_id") @db.Uuid
+  personId            String                  @map("person_id") @db.Uuid
+  receivableAccountId String                  @map("receivable_account_id") @db.Uuid
+  sourceAccountId     String?                 @map("source_account_id") @db.Uuid
+  currency            String                  @db.Char(3)
+  originalPrincipal   Decimal                 @map("original_principal") @db.Decimal(18, 2)
+  currentPrincipal    Decimal                 @map("current_principal") @db.Decimal(18, 2)
+  ratePercent         Decimal                 @map("rate_percent") @db.Decimal(10, 7)
+  method              String                  @db.VarChar(30)
+  frequency           String                  @db.VarChar(20)
+  termCount           Int                     @map("term_count")
+  installmentAmount   Decimal                 @map("installment_amount") @db.Decimal(18, 2)
+  expectedInterest    Decimal                 @map("expected_interest") @db.Decimal(18, 2)
+  expectedTotal       Decimal                 @map("expected_total") @db.Decimal(18, 2)
+  principalReceived   Decimal                 @default(0) @map("principal_received") @db.Decimal(18, 2)
+  interestReceived    Decimal                 @default(0) @map("interest_received") @db.Decimal(18, 2)
+  disbursementDate    DateTime                @map("disbursement_date") @db.Date
+  firstPaymentDate    DateTime                @map("first_payment_date") @db.Date
+  nextDueDate         DateTime?               @map("next_due_date") @db.Date
+  estimatedEndDate    DateTime                @map("estimated_end_date") @db.Date
+  status              String                  @default("ACTIVE") @db.VarChar(20)
+  notes               String?
+  createdBy           String                  @map("created_by") @db.Uuid
+  createdAt           DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                @default(now()) @map("updated_at") @db.Timestamptz(6)
+  archivedAt          DateTime?               @map("archived_at") @db.Timestamptz(6)
+  workspace           Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  person              FinancialPerson         @relation(fields: [workspaceId, personId], references: [workspaceId, id], onDelete: Restrict)
+  receivableAccount   FinancialAccount        @relation("issued_loan_receivable", fields: [workspaceId, receivableAccountId], references: [workspaceId, id], onDelete: Restrict)
+  sourceAccount       FinancialAccount?       @relation("issued_loan_source", fields: [workspaceId, sourceAccountId], references: [workspaceId, id], onDelete: Restrict)
+  creator             User                    @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  installments        IssuedLoanInstallment[]
+  payments            IssuedLoanPayment[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, status, nextDueDate], map: "issued_loans_workspace_status_due_idx")
+  @@index([workspaceId, personId], map: "issued_loans_workspace_person_idx")
+  @@map("issued_loans")
+}
+
+model IssuedLoanInstallment {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId       String              @map("workspace_id") @db.Uuid
+  loanId            String              @map("loan_id") @db.Uuid
+  installmentNumber Int                 @map("installment_number")
+  dueDate           DateTime            @map("due_date") @db.Date
+  openingPrincipal  Decimal             @map("opening_principal") @db.Decimal(18, 2)
+  principalAmount   Decimal             @map("principal_amount") @db.Decimal(18, 2)
+  interestAmount    Decimal             @map("interest_amount") @db.Decimal(18, 2)
+  totalAmount       Decimal             @map("total_amount") @db.Decimal(18, 2)
+  principalPaid     Decimal             @default(0) @map("principal_paid") @db.Decimal(18, 2)
+  interestPaid      Decimal             @default(0) @map("interest_paid") @db.Decimal(18, 2)
+  totalPaid         Decimal             @default(0) @map("total_paid") @db.Decimal(18, 2)
+  closingPrincipal  Decimal             @map("closing_principal") @db.Decimal(18, 2)
+  status            String              @default("PENDING") @db.VarChar(20)
+  paidAt            DateTime?           @map("paid_at") @db.Timestamptz(6)
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime            @default(now()) @map("updated_at") @db.Timestamptz(6)
+  loan              IssuedLoan          @relation(fields: [workspaceId, loanId], references: [workspaceId, id], onDelete: Cascade)
+  payments          IssuedLoanPayment[]
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, loanId, installmentNumber], map: "issued_loan_installments_number_key")
+  @@index([workspaceId, dueDate, status], map: "issued_installments_workspace_due_idx")
+  @@map("issued_loan_installments")
+}
+
+model IssuedLoanPayment {
+  id                     String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId            String                @map("workspace_id") @db.Uuid
+  loanId                 String                @map("loan_id") @db.Uuid
+  installmentId          String                @map("installment_id") @db.Uuid
+  receivingAccountId     String                @map("receiving_account_id") @db.Uuid
+  principalTransactionId String?               @map("principal_transaction_id") @db.Uuid
+  interestTransactionId  String?               @map("interest_transaction_id") @db.Uuid
+  totalReceived          Decimal               @map("total_received") @db.Decimal(18, 2)
+  principalReceived      Decimal               @map("principal_received") @db.Decimal(18, 2)
+  interestReceived       Decimal               @map("interest_received") @db.Decimal(18, 2)
+  occurredAt             DateTime              @map("occurred_at") @db.Timestamptz(6)
+  notes                  String?
+  idempotencyKey         String                @map("idempotency_key") @db.VarChar(120)
+  createdBy              String                @map("created_by") @db.Uuid
+  createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  reversedAt             DateTime?             @map("reversed_at") @db.Timestamptz(6)
+  reversedBy             String?               @map("reversed_by") @db.Uuid
+  reversalReason         String?               @map("reversal_reason") @db.VarChar(500)
+  loan                   IssuedLoan            @relation(fields: [workspaceId, loanId], references: [workspaceId, id], onDelete: Restrict)
+  installment            IssuedLoanInstallment @relation(fields: [workspaceId, installmentId], references: [workspaceId, id], onDelete: Restrict)
+  receivingAccount       FinancialAccount      @relation(fields: [workspaceId, receivingAccountId], references: [workspaceId, id], onDelete: Restrict)
+  principalTransaction   Transaction?          @relation("issued_loan_principal_transaction", fields: [workspaceId, principalTransactionId], references: [workspaceId, id], onDelete: Restrict)
+  interestTransaction    Transaction?          @relation("issued_loan_interest_transaction", fields: [workspaceId, interestTransactionId], references: [workspaceId, id], onDelete: Restrict)
+  creator                User                  @relation("issued_loan_payment_creator", fields: [createdBy], references: [id], onDelete: Restrict)
+  reverser               User?                 @relation("issued_loan_payment_reverser", fields: [reversedBy], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, idempotencyKey], map: "issued_loan_payments_idempotency_key")
+  @@index([workspaceId, loanId, occurredAt(sort: Desc)], map: "issued_payments_workspace_loan_idx")
+  @@map("issued_loan_payments")
 }
 
 model PersonalBalance {
@@ -969,45 +1104,45 @@ model PersonalBalance {
 }
 
 model PersonalBalanceEntry {
-  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId       String           @map("workspace_id") @db.Uuid
-  balanceId         String           @map("balance_id") @db.Uuid
-  entryType         String           @map("entry_type") @db.VarChar(20)
-  amount            Decimal          @db.Decimal(18, 2)
-  resultingBalance  Decimal          @map("resulting_balance") @db.Decimal(18, 2)
-  accountId         String?          @map("account_id") @db.Uuid
-  transactionId     String?          @map("transaction_id") @db.Uuid
-  occurredAt        DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(6)
-  notes             String?
-  reversedAt        DateTime?        @map("reversed_at") @db.Timestamptz(6)
-  createdBy         String           @map("created_by") @db.Uuid
-  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
-  balance           PersonalBalance  @relation(fields: [workspaceId, balanceId], references: [workspaceId, id], onDelete: Cascade)
-  account           FinancialAccount? @relation(fields: [workspaceId, accountId], references: [workspaceId, id], onDelete: NoAction)
-  transaction       Transaction?     @relation(fields: [workspaceId, transactionId], references: [workspaceId, id], onDelete: NoAction)
-  creator           User             @relation(fields: [createdBy], references: [id], onDelete: NoAction)
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String            @map("workspace_id") @db.Uuid
+  balanceId        String            @map("balance_id") @db.Uuid
+  entryType        String            @map("entry_type") @db.VarChar(20)
+  amount           Decimal           @db.Decimal(18, 2)
+  resultingBalance Decimal           @map("resulting_balance") @db.Decimal(18, 2)
+  accountId        String?           @map("account_id") @db.Uuid
+  transactionId    String?           @map("transaction_id") @db.Uuid
+  occurredAt       DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  notes            String?
+  reversedAt       DateTime?         @map("reversed_at") @db.Timestamptz(6)
+  createdBy        String            @map("created_by") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+  balance          PersonalBalance   @relation(fields: [workspaceId, balanceId], references: [workspaceId, id], onDelete: Cascade)
+  account          FinancialAccount? @relation(fields: [workspaceId, accountId], references: [workspaceId, id], onDelete: NoAction)
+  transaction      Transaction?      @relation(fields: [workspaceId, transactionId], references: [workspaceId, id], onDelete: NoAction)
+  creator          User              @relation(fields: [createdBy], references: [id], onDelete: NoAction)
 
-  @@index([workspaceId, balanceId, occurredAt(sort: Desc)])
   @@unique([workspaceId, transactionId])
+  @@index([workspaceId, balanceId, occurredAt(sort: Desc)])
   @@map("personal_balance_entries")
 }
 
 model UserPreference {
-  userId             String     @id @map("user_id") @db.Uuid
-  defaultWorkspaceId String?    @map("default_workspace_id") @db.Uuid
-  language           String     @default("es-CO") @db.VarChar(10)
-  currency           String     @default("COP") @db.Char(3)
-  timezone           String     @default("America/Bogota") @db.VarChar(60)
-  dateFormat         String     @default("DD/MM/YYYY") @map("date_format") @db.VarChar(20)
-  theme              String     @default("LIGHT") @db.VarChar(20)
-  startScreen        String     @default("DASHBOARD") @map("start_screen") @db.VarChar(50)
-  dashboardLayout    Json       @default("{}") @map("dashboard_layout")
-  financialCycleStartDay Int?   @map("financial_cycle_start_day") @db.SmallInt
-  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
-  workspaces         Workspace? @relation(fields: [defaultWorkspaceId], references: [id], onUpdate: NoAction)
-  users              User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  userId                 String     @id @map("user_id") @db.Uuid
+  defaultWorkspaceId     String?    @map("default_workspace_id") @db.Uuid
+  language               String     @default("es-CO") @db.VarChar(10)
+  currency               String     @default("COP") @db.Char(3)
+  timezone               String     @default("America/Bogota") @db.VarChar(60)
+  dateFormat             String     @default("DD/MM/YYYY") @map("date_format") @db.VarChar(20)
+  theme                  String     @default("LIGHT") @db.VarChar(20)
+  startScreen            String     @default("DASHBOARD") @map("start_screen") @db.VarChar(50)
+  dashboardLayout        Json       @default("{}") @map("dashboard_layout")
+  financialCycleStartDay Int?       @map("financial_cycle_start_day") @db.SmallInt
+  createdAt              DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+  workspaces             Workspace? @relation(fields: [defaultWorkspaceId], references: [id], onUpdate: NoAction)
+  users                  User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@map("user_preferences")
 }
@@ -1046,9 +1181,12 @@ model User {
   workspaceMembersWorkspaceMembersInvitedByTousers WorkspaceMember[]        @relation("workspace_members_invited_byTousers")
   workspaceMembersWorkspaceMembersUserIdTousers    WorkspaceMember[]        @relation("workspace_members_user_idTousers")
   workspaces                                       Workspace[]
-  financialPeople                                 FinancialPerson[]
-  personalBalances                                PersonalBalance[]
-  personalBalanceEntries                          PersonalBalanceEntry[]
+  financialPeople                                  FinancialPerson[]
+  personalBalances                                 PersonalBalance[]
+  personalBalanceEntries                           PersonalBalanceEntry[]
+  issuedLoans                                      IssuedLoan[]
+  issuedLoanPaymentsCreated                        IssuedLoanPayment[]      @relation("issued_loan_payment_creator")
+  issuedLoanPaymentsReversed                       IssuedLoanPayment[]      @relation("issued_loan_payment_reverser")
 
   @@map("users")
 }
@@ -1103,6 +1241,7 @@ model Workspace {
   users                 User                   @relation(fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   financialPeople       FinancialPerson[]
   personalBalances      PersonalBalance[]
+  issuedLoans           IssuedLoan[]
 
   @@map("workspaces")
 }
