@@ -1,10 +1,14 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { authenticate } from "../../common/middlewares/authenticate.js";
 import { rateLimit } from "express-rate-limit";
 import * as controller from "./auth.controller.js";
 
-const limiter = (limit: number) =>
-  rateLimit({
+const passthrough: RequestHandler = (_request, _response, next) => next();
+
+const limiter = (limit: number): RequestHandler => {
+  if (process.env.NODE_ENV === "test") return passthrough;
+
+  return rateLimit({
     windowMs: 15 * 60_000,
     limit,
     standardHeaders: "draft-8",
@@ -19,6 +23,7 @@ const limiter = (limit: number) =>
         },
       }),
   });
+};
 
 const authRouter = Router();
 authRouter.post("/register", limiter(5), controller.register);
