@@ -136,7 +136,7 @@ describe.sequential("metas de ahorro · simulación de usuario", () => {
     const response = await request(app)
       .post(`${goalsBase()}/${goalId}/contributions`)
       .set(auth(actor.access))
-      .send({ amount: "300000.00", contributedAt: "2026-09-02T12:00:00-05:00" });
+      .send({ amount: "300000.00", contributedAt: "2026-06-02T12:00:00-05:00" });
     expect(response.status).toBe(201);
     expect(response.body.data.savedAmount).toBe("300000.00");
     expect(response.body.data.progress.percentage).toBe("3.75");
@@ -176,7 +176,7 @@ describe.sequential("metas de ahorro · simulación de usuario", () => {
         destinationAccountId: savingsId,
         categoryId: transferCategoryId,
         amount: "500000.00",
-        occurredAt: "2026-10-02T12:00:00-05:00",
+        occurredAt: "2026-08-02T12:00:00-05:00",
         description: "Ahorro para la moto",
       });
     expect(transfer.status).toBe(201);
@@ -188,7 +188,7 @@ describe.sequential("metas de ahorro · simulación de usuario", () => {
       .send({
         amount: "500000.00",
         transactionId: transferId,
-        contributedAt: "2026-10-02T12:00:00-05:00",
+        contributedAt: "2026-08-02T12:00:00-05:00",
       });
     expect(contribution.status).toBe(201);
     expect(contribution.body.data.savedAmount).toBe("800000.00");
@@ -223,7 +223,7 @@ describe.sequential("metas de ahorro · simulación de usuario", () => {
     const withdrawal = await request(app)
       .post(`${goalsBase()}/${goalId}/contributions`)
       .set(auth(actor.access))
-      .send({ amount: "-100000.00", contributedAt: "2026-11-02T12:00:00-05:00" });
+      .send({ amount: "-100000.00", contributedAt: "2026-09-01T12:00:00-05:00" });
     expect(withdrawal.status).toBe(201);
     expect(withdrawal.body.data.savedAmount).toBe("700000.00");
     expect(withdrawal.body.data.contributions.some((entry: { direction: string }) => entry.direction === "OUT")).toBe(true);
