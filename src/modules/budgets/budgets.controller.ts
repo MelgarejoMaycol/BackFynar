@@ -7,6 +7,7 @@ import {
   listBudgetsSchema,
   updateBudgetSchema,
 } from "./budgets.schemas.js";
+import { budgetsRepository } from "./budgets.repository.js";
 import { budgetsService } from "./budgets.service.js";
 const parse = <T>(schema: ZodType<T>, value: unknown): T => {
   const result = schema.safeParse(value);
@@ -31,13 +32,26 @@ export const list = execute(async (req, res) => {
   });
 });
 export const get = execute(async (req, res) => {
-  res.status(200).json({
-    success: true,
-    data: await budgetsService.get(
+  const budgetId = id(req);
+  const [budget, movements] = await Promise.all([
+    budgetsService.get(
       req.workspace!.workspaceId,
-      id(req),
+      budgetId,
       req.workspace!.workspace.timezone,
     ),
+    budgetsRepository.movements(req.workspace!.workspaceId, budgetId),
+  ]);
+  res.status(200).json({
+    success: true,
+    data: {
+      ...budget,
+      movements: movements.map((movement) => ({
+        ...movement,
+        amount: movement.amount.toDecimalPlaces(2).toFixed(2),
+        currency: movement.currency.trim(),
+        occurredAt: movement.occurredAt.toISOString(),
+      })),
+    },
   });
 });
 export const cycleRange = execute(async (req, res) => {
