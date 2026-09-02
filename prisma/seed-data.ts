@@ -64,6 +64,8 @@ export const permissions: readonly PermissionSeed[] = [
   { code: "budgets.write", description: "Crear y modificar presupuestos" },
   { code: "debts.read", description: "Consultar deudas" },
   { code: "debts.write", description: "Crear y modificar deudas" },
+  { code: "goals.read", description: "Consultar metas de ahorro" },
+  { code: "goals.write", description: "Crear y modificar metas de ahorro" },
   { code: "reports.read", description: "Consultar reportes" },
   { code: "ai.use", description: "Usar análisis y simulaciones de IA" },
 ];
