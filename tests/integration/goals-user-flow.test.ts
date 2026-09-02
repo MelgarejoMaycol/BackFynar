@@ -216,7 +216,7 @@ describe.sequential("metas de ahorro · simulación de usuario", () => {
     const foreignWorkspace = await request(app)
       .get(`/api/v1/workspaces/${actor.workspaceId}/goals/${goalId}`)
       .set(auth(outsider.access));
-    expect(foreignWorkspace.status).toBe(403);
+    expect(foreignWorkspace.status).toBe(404);
   });
 
   it("permite retirar asignación de forma trazable y bloquea sobregiros", async () => {
