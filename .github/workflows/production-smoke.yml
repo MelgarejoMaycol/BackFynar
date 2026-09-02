@@ -1,0 +1,45 @@
+name: Fynar Production Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Backend base URL
+        required: true
+        default: https://backfynar.onrender.com
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify API root and health
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 --max-time 120 "$BASE_URL/" | tee root.json
+          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 --max-time 120 "$BASE_URL/api/v1/health/live" | tee health.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const root = JSON.parse(fs.readFileSync('root.json', 'utf8'));
+          const health = JSON.parse(fs.readFileSync('health.json', 'utf8'));
+          if (root?.success !== true || root?.data?.status !== 'ok') throw new Error('API root is not healthy');
+          if (health?.success !== true) throw new Error('Health endpoint is not healthy');
+          NODE
+
+      - name: Verify savings goals route is deployed and protected
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 --max-time 120 \
+            -o goals-unauthorized.json -w '%{http_code}' \
+            "$BASE_URL/api/v1/workspaces/00000000-0000-0000-0000-000000000000/goals")
+          cat goals-unauthorized.json
+          test "$status" = "401"
