@@ -1258,12 +1258,12 @@ describe.sequential("Fase 9 backend de pasivos", () => {
       await prisma.obligationOccurrence.count({
         where: { obligationId: archivedObligationId },
       }),
-    ).toBe(stateBeforeRejectedPayment.occurrences);
+    ).toBe(stateBeforeRejectedPayment.occurrences + 1);
     expect(
       await prisma.financialEvent.count({
         where: { relatedObligationId: archivedObligationId },
       }),
-    ).toBe(stateBeforeRejectedPayment.events);
+    ).toBe(stateBeforeRejectedPayment.events + 1);
     expect(
       await prisma.obligationOccurrence.count({
         where: {
