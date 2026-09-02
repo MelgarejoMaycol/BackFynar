@@ -84,4 +84,21 @@ jobs:
       - run: npm ci
       - run: npm run prisma:migrate:test
       - run: npm run prisma:seed:test
-      - run: npm run test:integration
+      - name: Run integration tests
+        id: integration_tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:integration 2>&1 | tee integration-tests.log
+      - name: Upload integration test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-log-${{ github.run_id }}
+          path: integration-tests.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Fail when integration tests failed
+        if: steps.integration_tests.outcome == 'failure'
+        run: exit 1
