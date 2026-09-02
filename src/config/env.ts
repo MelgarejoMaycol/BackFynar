@@ -31,6 +31,10 @@ const schema = z.object({
     .regex(/^(false|loopback|[1-3])$/)
     .default("false"),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
+  DISABLE_AUTH_RATE_LIMITS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   SENTRY_DSN: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().url().optional(),
@@ -101,6 +105,8 @@ if (!result.success) throw new Error(`Configuración inválida: ${z.prettifyErro
 export const env = result.data;
 if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET === DEVELOPMENT_JWT_SECRET)
   throw new Error("JWT_ACCESS_SECRET debe configurarse explicitamente en produccion");
+if (env.NODE_ENV === "production" && env.DISABLE_AUTH_RATE_LIMITS)
+  throw new Error("DISABLE_AUTH_RATE_LIMITS no está permitido en producción");
 if (env.EMAIL_PROVIDER === "resend" && !env.RESEND_API_KEY)
   throw new Error("RESEND_API_KEY es obligatoria cuando EMAIL_PROVIDER=resend");
 if (env.EMAIL_PROVIDER === "brevo" && !env.BREVO_API_KEY)

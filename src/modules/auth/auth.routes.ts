@@ -1,12 +1,13 @@
 import { Router, type RequestHandler } from "express";
 import { authenticate } from "../../common/middlewares/authenticate.js";
+import { env } from "../../config/env.js";
 import { rateLimit } from "express-rate-limit";
 import * as controller from "./auth.controller.js";
 
 const passthrough: RequestHandler = (_request, _response, next) => next();
 
 const limiter = (limit: number): RequestHandler => {
-  if (process.env.NODE_ENV === "test") return passthrough;
+  if (env.NODE_ENV === "test" && env.DISABLE_AUTH_RATE_LIMITS) return passthrough;
 
   return rateLimit({
     windowMs: 15 * 60_000,
