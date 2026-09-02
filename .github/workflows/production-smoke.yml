@@ -1,12 +1,9 @@
 name: Fynar Production Smoke
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      base_url:
-        description: Backend base URL
-        required: true
-        default: https://backfynar.onrender.com
 
 permissions:
   contents: read
@@ -15,31 +12,48 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      BASE_URL: https://backfynar.onrender.com
     steps:
-      - name: Verify API root and health
-        env:
-          BASE_URL: ${{ inputs.base_url }}
+      - name: Wait for deployed API and health
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 --max-time 120 "$BASE_URL/" | tee root.json
-          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 --max-time 120 "$BASE_URL/api/v1/health/live" | tee health.json
-          node - <<'NODE'
+          for attempt in $(seq 1 30); do
+            root_status=$(curl --silent --show-error --max-time 30 -o root.json -w '%{http_code}' "$BASE_URL/" || true)
+            health_status=$(curl --silent --show-error --max-time 30 -o health.json -w '%{http_code}' "$BASE_URL/api/v1/health/live" || true)
+            if [ "$root_status" = "200" ] && [ "$health_status" = "200" ]; then
+              node - <<'NODE'
           const fs = require('node:fs');
           const root = JSON.parse(fs.readFileSync('root.json', 'utf8'));
           const health = JSON.parse(fs.readFileSync('health.json', 'utf8'));
-          if (root?.success !== true || root?.data?.status !== 'ok') throw new Error('API root is not healthy');
-          if (health?.success !== true) throw new Error('Health endpoint is not healthy');
+          if (root?.success !== true || root?.data?.status !== 'ok') process.exit(1);
+          if (health?.success !== true) process.exit(1);
           NODE
+              echo "API saludable en intento $attempt"
+              exit 0
+            fi
+            echo "Esperando despliegue de Render ($attempt/30): root=$root_status health=$health_status"
+            sleep 10
+          done
+          echo "El backend desplegado no quedó saludable a tiempo"
+          exit 1
 
-      - name: Verify savings goals route is deployed and protected
-        env:
-          BASE_URL: ${{ inputs.base_url }}
+      - name: Wait for savings goals route to be deployed and protected
         shell: bash
         run: |
           set -euo pipefail
-          status=$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 --max-time 120 \
-            -o goals-unauthorized.json -w '%{http_code}' \
-            "$BASE_URL/api/v1/workspaces/00000000-0000-0000-0000-000000000000/goals")
-          cat goals-unauthorized.json
-          test "$status" = "401"
+          for attempt in $(seq 1 30); do
+            status=$(curl --silent --show-error --max-time 30 \
+              -o goals-unauthorized.json -w '%{http_code}' \
+              "$BASE_URL/api/v1/workspaces/00000000-0000-0000-0000-000000000000/goals" || true)
+            cat goals-unauthorized.json || true
+            if [ "$status" = "401" ]; then
+              echo "Ruta de metas desplegada y protegida correctamente"
+              exit 0
+            fi
+            echo "Esperando ruta de metas ($attempt/30): status=$status"
+            sleep 10
+          done
+          echo "La ruta de metas no quedó disponible/protegida a tiempo"
+          exit 1
