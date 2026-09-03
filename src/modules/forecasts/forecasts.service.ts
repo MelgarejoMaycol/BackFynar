@@ -7,9 +7,10 @@ import {
   type ForecastsRepository,
 } from "./forecasts.repository.js";
 
-const D = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value);
+type DecimalLike = Prisma.Decimal | string | number;
+const D = (value: DecimalLike) => new Prisma.Decimal(value);
 const zero = () => D(0);
-const sum = (values: Prisma.Decimal.Value[]) =>
+const sum = (values: DecimalLike[]) =>
   values.reduce((total, value) => total.plus(value), zero());
 
 const localDate = (date: Date, timezone: string) => {
