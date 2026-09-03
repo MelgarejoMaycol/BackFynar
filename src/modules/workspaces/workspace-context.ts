@@ -30,6 +30,10 @@ export const requirePermission =
       if (!request.auth) throw new UnauthorizedError();
       if (!request.workspace)
         throw new UnauthorizedError("Contexto de workspace ausente", "Autenticacion requerida");
+      if (request.workspace.roleCode === "OWNER") {
+        next();
+        return;
+      }
       if (!request.workspace.permissions.includes(permission))
         throw new ForbiddenError(`Permiso requerido: ${permission}`, "Permiso insuficiente");
       next();
