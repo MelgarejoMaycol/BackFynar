@@ -11,6 +11,6 @@ describe("purchase simulator financing math", () => {
   });
 
   it("uses the fixed-payment formula when there is a monthly rate", () => {
-    expect(fixedPayment(3_000_000, 12, 0.018)).toBeCloseTo(280_635.02, 1);
+    expect(fixedPayment(3_000_000, 12, 0.018)).toBeCloseTo(280_205.93, 1);
   });
 });
