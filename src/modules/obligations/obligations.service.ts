@@ -60,6 +60,48 @@ export class ObligationsService {
     if (unique.length)
       await t.$queryRaw`SELECT id FROM financial_accounts WHERE id IN (${Prisma.join(unique.map((id) => Prisma.sql`${id}::uuid`))}) ORDER BY id FOR UPDATE`;
   }
+  private async applyPaymentSource(
+    t: Prisma.TransactionClient,
+    account: {
+      id: string;
+      type: string;
+      nature: string;
+      currentBalance: Prisma.Decimal;
+      creditLimit: Prisma.Decimal | null;
+    },
+    amount: Prisma.Decimal,
+  ) {
+    if (account.type === "CREDIT_CARD") {
+      if (!account.creditLimit || account.currentBalance.plus(amount).gt(account.creditLimit))
+        throw new ConflictError(
+          "Cupo insuficiente",
+          "La tarjeta no tiene cupo suficiente para registrar este pago.",
+        );
+      await t.financialAccount.update({
+        where: { id: account.id },
+        data: { currentBalance: { increment: amount } },
+      });
+      return;
+    }
+    if (account.nature !== "ASSET") throw new NotFoundError("Cuenta pagadora no encontrada");
+    await t.financialAccount.update({
+      where: { id: account.id },
+      data: { currentBalance: { decrement: amount } },
+    });
+  }
+  private async restorePaymentSource(
+    t: Prisma.TransactionClient,
+    account: { id: string; type: string },
+    amount: Prisma.Decimal,
+  ) {
+    await t.financialAccount.update({
+      where: { id: account.id },
+      data: {
+        currentBalance:
+          account.type === "CREDIT_CARD" ? { decrement: amount } : { increment: amount },
+      },
+    });
+  }
   private async recalculateOccurrence(
     t: Prisma.TransactionClient,
     w: string,
@@ -193,7 +235,7 @@ export class ObligationsService {
         include: {
           recurrenceRules: true,
           occurrences: {
-            orderBy: { dueDate: "asc" },
+            orderBy: { dueDate: "desc" },
             include: {
               payments: {
                 include: { account: { select: { id: true, name: true, isActive: true } } },
@@ -211,7 +253,7 @@ export class ObligationsService {
       include: {
         recurrenceRules: true,
         occurrences: {
-          orderBy: { dueDate: "asc" },
+          orderBy: { dueDate: "desc" },
           include: {
             payments: {
               include: { account: { select: { id: true, name: true, isActive: true } } },
@@ -487,9 +529,9 @@ export class ObligationsService {
         where: {
           id: input.accountId,
           workspaceId: w,
-          nature: "ASSET",
           isActive: true,
           deletedAt: null,
+          OR: [{ nature: "ASSET" }, { type: "CREDIT_CARD", nature: "LIABILITY" }],
         },
       });
       if (!o || !a) throw new NotFoundError("Ocurrencia o cuenta no encontrada");
@@ -518,10 +560,7 @@ export class ObligationsService {
           },
         },
       });
-      await t.financialAccount.update({
-        where: { id: a.id },
-        data: { currentBalance: { decrement: amount } },
-      });
+      await this.applyPaymentSource(t, a, amount);
       const payment = await t.obligationPayment.create({
         data: {
           workspaceId: w,
@@ -642,10 +681,19 @@ export class ObligationsService {
 
       const accountId = input.accountId ?? current.accountId;
       await this.lockAccounts(t, [current.accountId, accountId]);
-      const account = await t.financialAccount.findFirst({
-        where: { id: accountId, workspaceId: w, isActive: true, deletedAt: null, nature: "ASSET" },
-      });
-      if (!account) throw new NotFoundError("Cuenta activa no encontrada");
+      const [currentAccount, account] = await Promise.all([
+        t.financialAccount.findFirst({ where: { id: current.accountId, workspaceId: w } }),
+        t.financialAccount.findFirst({
+          where: {
+            id: accountId,
+            workspaceId: w,
+            isActive: true,
+            deletedAt: null,
+            OR: [{ nature: "ASSET" }, { type: "CREDIT_CARD", nature: "LIABILITY" }],
+          },
+        }),
+      ]);
+      if (!currentAccount || !account) throw new NotFoundError("Cuenta o tarjeta activa no encontrada");
       if (account.currency !== current.occurrence.obligation.currency)
         throw new ConflictError("Moneda incompatible");
 
@@ -662,14 +710,11 @@ export class ObligationsService {
       if (amount.plus(otherPayments._sum.amount ?? 0).gt(current.occurrence.amount))
         throw new ConflictError("Pago superior no permitido");
 
-      await t.financialAccount.update({
-        where: { id: current.accountId },
-        data: { currentBalance: { increment: current.amount } },
+      await this.restorePaymentSource(t, currentAccount, current.amount);
+      const accountAfterRestore = await t.financialAccount.findFirstOrThrow({
+        where: { id: accountId, workspaceId: w },
       });
-      await t.financialAccount.update({
-        where: { id: accountId },
-        data: { currentBalance: { decrement: amount } },
-      });
+      await this.applyPaymentSource(t, accountAfterRestore, amount);
       const paidAt = input.occurredAt ? new Date(input.occurredAt) : current.paidAt;
       const updatedCount = await t.obligationPayment.updateMany({
         where: { id: current.id, workspaceId: w, version: input.version, reversedAt: null },
@@ -745,10 +790,11 @@ export class ObligationsService {
           "El pago cambió. Actualiza e inténtalo de nuevo.",
         );
       await this.lockAccounts(t, [current.accountId]);
-      await t.financialAccount.update({
-        where: { id: current.accountId },
-        data: { currentBalance: { increment: current.amount } },
+      const sourceAccount = await t.financialAccount.findFirst({
+        where: { id: current.accountId, workspaceId: w },
       });
+      if (!sourceAccount) throw new NotFoundError("Cuenta pagadora no encontrada");
+      await this.restorePaymentSource(t, sourceAccount, current.amount);
       const now = new Date();
       const reversed = await t.obligationPayment.updateMany({
         where: { id: current.id, workspaceId: w, version: input.version, reversedAt: null },

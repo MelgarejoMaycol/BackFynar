@@ -659,6 +659,29 @@ describe.sequential("Fase 9 backend de pasivos", () => {
       status: "PENDING",
       amount: new Prisma.Decimal("80000"),
     });
+    const cardBeforeObligation = await prisma.financialAccount.findUniqueOrThrow({ where: { id: card } });
+    const paidWithCard = await request(app)
+      .post(url(`/obligations/${obligation}/occurrences/${nextOccurrence.id}/payments`))
+      .set(auth(actors[0]!.token))
+      .send({
+        accountId: card,
+        amount: "80000",
+        occurredAt: "2026-09-15T12:00:00Z",
+        idempotencyKey: `obl-card-${suffix}`,
+      });
+    expect(paidWithCard.status).toBe(201);
+    const cardAfterObligation = await prisma.financialAccount.findUniqueOrThrow({ where: { id: card } });
+    expect(cardAfterObligation.currentBalance.eq(cardBeforeObligation.currentBalance.plus("80000"))).toBe(true);
+    const cardPayment = await prisma.obligationPayment.findFirstOrThrow({
+      where: { occurrenceId: nextOccurrence.id, accountId: card, reversedAt: null },
+    });
+    const reversedCardPayment = await request(app)
+      .post(url(`/obligations/${obligation}/payments/${cardPayment.id}/reverse`))
+      .set(auth(actors[0]!.token))
+      .send({ reason: "Prueba de reversión con tarjeta", version: cardPayment.version });
+    expect(reversedCardPayment.status).toBe(200);
+    const cardAfterReverse = await prisma.financialAccount.findUniqueOrThrow({ where: { id: card } });
+    expect(cardAfterReverse.currentBalance.eq(cardBeforeObligation.currentBalance)).toBe(true);
     expect(
       await prisma.financialEvent.findFirstOrThrow({
         where: { relatedObligationOccurrenceId: nextOccurrence.id },
