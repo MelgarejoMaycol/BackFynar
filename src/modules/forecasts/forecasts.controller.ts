@@ -11,6 +11,7 @@ export function getMonthEndForecast(
       request.workspace!.workspaceId,
       request.workspace!.workspace.baseCurrency,
       request.workspace!.workspace.timezone,
+      request.auth!.userId,
       new Date(),
     )
     .then((data) => response.status(200).json({ success: true, data }))
