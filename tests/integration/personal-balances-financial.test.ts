@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../src/database/prisma.js";
 import { PersonalBalancesService } from "../../src/modules/personal-balances/personal-balances.service.js";
+import { PersonalBalanceSourceAccountService } from "../../src/modules/personal-balances/personal-balances.source-account.js";
 
 describe.sequential("deudas y cobros integrados con cuentas", () => {
   const service = new PersonalBalancesService(prisma);
+  const sourceAccountService = new PersonalBalanceSourceAccountService(prisma);
   const suffix = randomUUID().replaceAll("-", "");
   let userId = "";
   let workspaceId = "";
@@ -109,6 +111,37 @@ describe.sequential("deudas y cobros integrados con cuentas", () => {
     expect((await prisma.financialAccount.findUniqueOrThrow({ where: { id: accountId } })).currentBalance.toFixed(2)).toBe("1050000.00");
     expect((await service.update(workspaceId, balance.id, { originalAmount: "600000.00" })).currentBalance).toBe("450000.00");
     await expect(service.update(workspaceId, balance.id, { originalAmount: "100000.00" })).rejects.toThrow(/menor/);
+  });
+
+  it("al vincular una cuenta a un préstamo informal histórico descuenta una sola vez y crea movimiento", async () => {
+    const person = await service.createPerson(workspaceId, userId, { name: "Préstamo histórico QA" });
+    const balance = await service.create(workspaceId, userId, {
+      personId: person.id,
+      direction: "RECEIVABLE",
+      amount: "5000.00",
+      currency: "COP",
+      occurredOn: "2026-09-03",
+    });
+    const before = await prisma.financialAccount.findUniqueOrThrow({ where: { id: accountId } });
+    const transactionsBefore = await prisma.transaction.count({ where: { workspaceId } });
+
+    await sourceAccountService.link(workspaceId, userId, balance.id, accountId);
+
+    const after = await prisma.financialAccount.findUniqueOrThrow({ where: { id: accountId } });
+    expect(after.currentBalance.toFixed(2)).toBe(before.currentBalance.minus("5000.00").toFixed(2));
+    const detail = await service.get(workspaceId, balance.id);
+    const opening = detail.entries.find((entry) => entry.type === "OPENING")!;
+    expect(opening.accountId).toBe(accountId);
+    expect(opening.transactionId).toBeTruthy();
+    const movement = await prisma.transaction.findUniqueOrThrow({ where: { id: opening.transactionId! } });
+    expect(movement).toMatchObject({ type: "ADJUSTMENT", status: "CONFIRMED", accountId });
+    expect(movement.amount.toFixed(2)).toBe("5000.00");
+    expect(await prisma.transaction.count({ where: { workspaceId } })).toBe(transactionsBefore + 1);
+
+    await sourceAccountService.link(workspaceId, userId, balance.id, accountId);
+    const afterSecondAttempt = await prisma.financialAccount.findUniqueOrThrow({ where: { id: accountId } });
+    expect(afterSecondAttempt.currentBalance.toFixed(2)).toBe(after.currentBalance.toFixed(2));
+    expect(await prisma.transaction.count({ where: { workspaceId } })).toBe(transactionsBefore + 1);
   });
 
   it("rechaza personas ajenas y cuentas archivadas", async () => {
