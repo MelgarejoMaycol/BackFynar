@@ -98,13 +98,12 @@ export class SimulationsService {
     const level = impactLevel(beforeClosing, afterClosing, lowestAfter);
     const copy = impactCopy(level);
 
-    const accountBalance = account ? Number(account.currentBalance) : null;
-    const accountAfter = accountBalance === null
+    const accountAfter = !account
       ? null
       : input.paymentMethod === "CASH"
-        ? accountBalance - input.amount
+        ? Number(account.currentBalance) - input.amount
         : account.type === "CREDIT_CARD" && account.creditLimit
-          ? Number(account.creditLimit) - accountBalance - input.amount
+          ? Number(account.creditLimit) - Number(account.currentBalance) - input.amount
           : null;
 
     return {
