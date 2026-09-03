@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
-const D = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value);
+type DecimalLike = Prisma.Decimal | string | number;
+const D = (value: DecimalLike) => new Prisma.Decimal(value);
 const zero = () => D(0);
 const fixed = (value: Prisma.Decimal) => value.toDecimalPlaces(2).toFixed(2);
 
@@ -8,7 +9,7 @@ export type ForecastDataQuality = "PARTIAL" | "LOW" | "MEDIUM" | "HIGH";
 
 export interface ForecastCashEvent {
   date: string;
-  amount: Prisma.Decimal.Value;
+  amount: DecimalLike;
   direction: "IN" | "OUT";
   label: string;
   source: "EXPECTED_INCOME" | "KNOWN_COMMITMENT";
@@ -16,10 +17,10 @@ export interface ForecastCashEvent {
 
 export interface MonthEndForecastEngineInput {
   currency: string;
-  currentAvailable: Prisma.Decimal.Value;
-  expectedIncome: Prisma.Decimal.Value;
-  knownCommitments: Prisma.Decimal.Value;
-  historicalVariableExpense: Prisma.Decimal.Value;
+  currentAvailable: DecimalLike;
+  expectedIncome: DecimalLike;
+  knownCommitments: DecimalLike;
+  historicalVariableExpense: DecimalLike;
   historyDays: number;
   daysRemaining: number;
   today: string;
