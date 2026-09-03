@@ -117,8 +117,12 @@ export class DashboardService {
         );
       return {
         currency,
-        totalMoney: fixed(totalMoney),
-        reservedForGoals: fixed(reservedForGoals),
+        ...(reservedForGoals.isZero()
+          ? {}
+          : {
+              totalMoney: fixed(totalMoney),
+              reservedForGoals: fixed(reservedForGoals),
+            }),
         availableMoney: fixed(availableMoney),
         totalIncome: fixed(totals.income),
         totalExpenses: fixed(totals.expenses),
