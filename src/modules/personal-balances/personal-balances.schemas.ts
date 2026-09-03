@@ -9,15 +9,25 @@ export const createPersonalBalanceSchema = z.object({
   direction: z.enum(["PAYABLE", "RECEIVABLE"]),
   amount: money,
   currency: z.string().trim().length(3).transform((value) => value.toUpperCase()).default("COP"),
+  sourceAccountId: uuid.optional().nullable(),
   description: z.string().trim().max(250).optional().nullable(),
   occurredOn: dateOnly.optional(),
   dueOn: dateOnly.optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
+}).superRefine((value, context) => {
+  if (value.direction === "RECEIVABLE" && !value.sourceAccountId) {
+    context.addIssue({
+      code: "custom",
+      path: ["sourceAccountId"],
+      message: "Selecciona la cuenta de la que salió el dinero prestado",
+    });
+  }
 });
 
 export const updatePersonalBalanceSchema = z.object({
   personId: uuid.optional(),
   originalAmount: money.optional(),
+  sourceAccountId: uuid.optional().nullable(),
   description: z.string().trim().max(250).optional().nullable(),
   dueOn: dateOnly.optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
