@@ -10,6 +10,7 @@ import {
   uuid,
 } from "./personal-balances.schemas.js";
 import { personalBalancesService as service } from "./personal-balances.service.js";
+import { personalBalanceSourceAccountService } from "./personal-balances.source-account.js";
 
 const parse = <T>(schema: ZodType<T>, value: unknown) => {
   const result = schema.safeParse(value);
@@ -52,24 +53,47 @@ export const get = asyncRoute(async (request, response) => {
 });
 
 export const create = asyncRoute(async (request, response) => {
-  response.status(201).json({
-    success: true,
-    data: await service.create(
+  const input = parse(createPersonalBalanceSchema, request.body);
+  const created = await service.create(
+    request.workspace!.workspaceId,
+    request.auth!.userId,
+    input,
+  );
+  if (input.direction === "RECEIVABLE" && input.sourceAccountId) {
+    await personalBalanceSourceAccountService.link(
       request.workspace!.workspaceId,
       request.auth!.userId,
-      parse(createPersonalBalanceSchema, request.body),
-    ),
+      created.id,
+      input.sourceAccountId,
+    );
+  }
+  response.status(201).json({
+    success: true,
+    data: await service.get(request.workspace!.workspaceId, created.id),
   });
 });
 
 export const update = asyncRoute(async (request, response) => {
+  const personalBalanceId = parse(uuid, request.params.personalBalanceId);
+  const input = parse(updatePersonalBalanceSchema, request.body);
+  const updated = await service.update(
+    request.workspace!.workspaceId,
+    personalBalanceId,
+    input,
+  );
+  if (input.sourceAccountId) {
+    await personalBalanceSourceAccountService.link(
+      request.workspace!.workspaceId,
+      request.auth!.userId,
+      personalBalanceId,
+      input.sourceAccountId,
+    );
+  }
   response.json({
     success: true,
-    data: await service.update(
-      request.workspace!.workspaceId,
-      parse(uuid, request.params.personalBalanceId),
-      parse(updatePersonalBalanceSchema, request.body),
-    ),
+    data: input.sourceAccountId
+      ? await service.get(request.workspace!.workspaceId, personalBalanceId)
+      : updated,
   });
 });
 
