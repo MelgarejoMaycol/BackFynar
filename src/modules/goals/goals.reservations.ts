@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 
-export type ReservationClient = Prisma.TransactionClient;
+export type ReservationClient = Pick<Prisma.TransactionClient, "$queryRaw" | "$executeRaw">;
 
 export interface AccountReservation {
   accountId: string;
@@ -18,9 +18,7 @@ export async function reservationsByAccount(
   client: ReservationClient,
   workspaceId: string,
 ): Promise<AccountReservation[]> {
-  const rows = await client.$queryRaw<
-    Array<{ accountId: string; reservedForGoals: Prisma.Decimal }>
-  >(Prisma.sql`
+  return client.$queryRaw<Array<{ accountId: string; reservedForGoals: Prisma.Decimal }>>(Prisma.sql`
     SELECT
       gca.account_id AS "accountId",
       COALESCE(SUM(gc.amount), 0)::numeric(18,2) AS "reservedForGoals"
@@ -32,7 +30,6 @@ export async function reservationsByAccount(
       AND sg.status <> 'CANCELLED'::goal_status
     GROUP BY gca.account_id
   `);
-  return rows;
 }
 
 export async function reservedForGoalAccount(
