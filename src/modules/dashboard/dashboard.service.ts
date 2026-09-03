@@ -87,6 +87,9 @@ export class DashboardService {
     ]);
     const current = totalsMap(data.currentTotals);
     const previous = totalsMap(data.previousTotals);
+    const reservedByAccount = new Map(
+      data.goalReservations.map((entry) => [entry.accountId, entry.reservedForGoals]),
+    );
     const currencies = new Set<string>([
       baseCurrency,
       ...data.accounts.map((account) => account.currency),
@@ -96,9 +99,13 @@ export class DashboardService {
     const summariesByCurrency = [...currencies].sort().map((currency) => {
       const totals = current.get(currency) ?? { income: zero(), expenses: zero() };
       const accounts = data.accounts.filter((account) => account.currency === currency);
-      const availableMoney = accounts
+      const totalMoney = accounts
         .filter((account) => account.nature === "ASSET")
         .reduce((sum, account) => sum.plus(account.currentBalance), zero());
+      const reservedForGoals = accounts
+        .filter((account) => account.nature === "ASSET")
+        .reduce((sum, account) => sum.plus(reservedByAccount.get(account.id) ?? zero()), zero());
+      const availableMoney = totalMoney.minus(reservedForGoals);
       const netWorth = accounts
         .filter((account) => account.includeInNetWorth)
         .reduce(
@@ -110,6 +117,8 @@ export class DashboardService {
         );
       return {
         currency,
+        totalMoney: fixed(totalMoney),
+        reservedForGoals: fixed(reservedForGoals),
         availableMoney: fixed(availableMoney),
         totalIncome: fixed(totals.income),
         totalExpenses: fixed(totals.expenses),
@@ -200,7 +209,17 @@ export class DashboardService {
       },
       baseCurrency,
       summariesByCurrency,
-      accountBalances: data.accounts.map(toDashboardAccount),
+      accountBalances: data.accounts.map((account) => {
+        const base = toDashboardAccount(account);
+        const reserved = account.nature === "ASSET" ? (reservedByAccount.get(account.id) ?? zero()) : zero();
+        return {
+          ...base,
+          reservedForGoals: fixed(reserved),
+          availableBalance: fixed(
+            account.nature === "ASSET" ? account.currentBalance.minus(reserved) : account.currentBalance,
+          ),
+        };
+      }),
       recentTransactions: data.recentTransactions.map(toPublicTransaction),
       budgetProgress: budgetPage.items,
       expensesByCategory,
