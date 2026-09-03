@@ -8,6 +8,7 @@ import transactionsRouter from "../transactions/transactions.routes.js";
 import dashboardRouter from "../dashboard/dashboard.routes.js";
 import budgetsRouter from "../budgets/budgets.routes.js";
 import reportsRouter from "../reports/reports.routes.js";
+import forecastsRouter from "../forecasts/forecasts.routes.js";
 import debtsRouter from "../debts/debts.routes.js";
 import obligationsRouter from "../obligations/obligations.routes.js";
 import cardsRouter from "../cards/cards.routes.js";
@@ -25,6 +26,7 @@ router.use("/:workspaceId/transactions", resolveWorkspaceContext, transactionsRo
 router.use("/:workspaceId/dashboard", resolveWorkspaceContext, dashboardRouter);
 router.use("/:workspaceId/budgets", resolveWorkspaceContext, budgetsRouter);
 router.use("/:workspaceId/reports", resolveWorkspaceContext, reportsRouter);
+router.use("/:workspaceId/forecasts", resolveWorkspaceContext, forecastsRouter);
 router.use("/:workspaceId/debts", resolveWorkspaceContext, debtsRouter);
 router.use("/:workspaceId/obligations", resolveWorkspaceContext, obligationsRouter);
 router.use("/:workspaceId/cards", resolveWorkspaceContext, cardsRouter);
