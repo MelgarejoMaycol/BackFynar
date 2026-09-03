@@ -7,6 +7,8 @@ import {
   updateGoalSchema,
 } from "../src/modules/goals/goals.schemas.js";
 
+const accountId = "11111111-1111-4111-8111-111111111111";
+
 describe("metas de ahorro", () => {
   it("valida creación y rechaza montos inválidos", () => {
     expect(
@@ -21,10 +23,11 @@ describe("metas de ahorro", () => {
     expect(updateGoalSchema.safeParse({}).success).toBe(false);
   });
 
-  it("acepta aportes y retiros pero no cero", () => {
-    expect(createContributionSchema.safeParse({ amount: "300000.00" }).success).toBe(true);
-    expect(createContributionSchema.safeParse({ amount: "-50000.00" }).success).toBe(true);
-    expect(createContributionSchema.safeParse({ amount: "0.00" }).success).toBe(false);
+  it("exige cuenta para aportes y retiros y rechaza cero", () => {
+    expect(createContributionSchema.safeParse({ amount: "300000.00", accountId }).success).toBe(true);
+    expect(createContributionSchema.safeParse({ amount: "-50000.00", accountId }).success).toBe(true);
+    expect(createContributionSchema.safeParse({ amount: "0.00", accountId }).success).toBe(false);
+    expect(createContributionSchema.safeParse({ amount: "300000.00" }).success).toBe(false);
   });
 
   it("calcula progreso, faltante y aporte mensual sugerido", () => {

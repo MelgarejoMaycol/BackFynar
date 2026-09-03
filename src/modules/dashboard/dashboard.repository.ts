@@ -1,5 +1,6 @@
 import type { PrismaClient, transaction_type } from "@prisma/client";
 import { prisma } from "../../database/prisma.js";
+import { reservationsByAccount } from "../goals/goals.reservations.js";
 import { transactionSelect } from "../transactions/transactions.mapper.js";
 import { dashboardAccountSelect } from "./dashboard.mapper.js";
 import type { DashboardPeriod } from "./dashboard.period.js";
@@ -25,7 +26,7 @@ export class DashboardRepository {
     )?.financialCycleStartDay;
   }
   async read(workspaceId: string, period: DashboardPeriod, recentLimit: number) {
-    const [accounts, currentTotals, previousTotals, recentTransactions, expenses] =
+    const [accounts, currentTotals, previousTotals, recentTransactions, expenses, goalReservations] =
       await Promise.all([
         this.database.financialAccount.findMany({
           where: { workspaceId, isActive: true, deletedAt: null },
@@ -64,13 +65,14 @@ export class DashboardRepository {
           },
           _sum: { amount: true },
         }),
+        reservationsByAccount(this.database, workspaceId),
       ]);
     const categoryIds = expenses.flatMap((row) => (row.categoryId ? [row.categoryId] : []));
     const categories = await this.database.category.findMany({
       where: { id: { in: categoryIds }, OR: [{ workspaceId }, { workspaceId: null }] },
       select: { id: true, name: true, icon: true, color: true },
     });
-    return { accounts, currentTotals, previousTotals, recentTransactions, expenses, categories };
+    return { accounts, currentTotals, previousTotals, recentTransactions, expenses, categories, goalReservations };
   }
 }
 
