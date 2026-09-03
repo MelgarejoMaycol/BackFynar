@@ -10,8 +10,11 @@ import {
 type DecimalLike = Prisma.Decimal | string | number;
 const D = (value: DecimalLike) => new Prisma.Decimal(value);
 const zero = () => D(0);
-const sum = (values: DecimalLike[]) =>
-  values.reduce((total, value) => total.plus(value), zero());
+const sum = (values: DecimalLike[]): Prisma.Decimal => {
+  let total = zero();
+  for (const value of values) total = total.plus(value);
+  return total;
+};
 
 const localDate = (date: Date, timezone: string) => {
   const parts = Object.fromEntries(
