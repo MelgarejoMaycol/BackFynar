@@ -1,5 +1,7 @@
 import { account_nature, account_type, Prisma } from "@prisma/client";
 import { AppError, ConflictError } from "../../common/errors/app-error.js";
+import { prisma } from "../../database/prisma.js";
+import { reservationsByAccount } from "../goals/goals.reservations.js";
 import { accountsRepository, type AccountsRepository } from "./accounts.repository.js";
 import { toPublicAccount, type AccountRecord } from "./accounts.mapper.js";
 import type {
@@ -39,6 +41,7 @@ export function validateAccountCoherence(account: CoherentAccount): void {
     );
 }
 const money = (value: string): Prisma.Decimal => new Prisma.Decimal(value);
+const fixed = (value: Prisma.Decimal): string => value.toDecimalPlaces(2).toFixed(2);
 const isUniqueConflict = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 const duplicateAccountName = () =>
@@ -49,47 +52,65 @@ const duplicateAccountName = () =>
 
 export class AccountsService {
   constructor(private readonly repository: AccountsRepository = accountsRepository) {}
+
+  private async enrichReservations(workspaceId: string, accounts: AccountRecord[]) {
+    const reservations = await reservationsByAccount(prisma, workspaceId);
+    const byAccount = new Map(reservations.map((item) => [item.accountId, item.reservedForGoals]));
+    return accounts.map((account) => {
+      const base = toPublicAccount(account);
+      const reserved = account.nature === "ASSET" ? (byAccount.get(account.id) ?? new Prisma.Decimal(0)) : new Prisma.Decimal(0);
+      const available = account.nature === "ASSET" ? account.currentBalance.minus(reserved) : account.currentBalance;
+      return {
+        ...base,
+        reservedForGoals: fixed(reserved),
+        availableBalance: fixed(available),
+      };
+    });
+  }
+
+  private async enrichOne(workspaceId: string, account: AccountRecord) {
+    return (await this.enrichReservations(workspaceId, [account]))[0]!;
+  }
+
   async create(workspaceId: string, input: CreateAccountInput) {
     validateAccountCoherence(input);
     const openingBalance = money(input.openingBalance);
     try {
-      return toPublicAccount(
-        await this.repository.create(workspaceId, {
-          name: input.name,
-          type: input.type,
-          nature: input.nature,
-          currency: input.currency,
-          openingBalance,
-          currentBalance: openingBalance,
-          ...(input.institutionName !== undefined
-            ? { institutionName: input.institutionName }
-            : {}),
-          ...(input.creditLimit !== undefined
-            ? { creditLimit: input.creditLimit === null ? null : money(input.creditLimit) }
-            : {}),
-          ...(input.billingDay !== undefined ? { billingDay: input.billingDay } : {}),
-          ...(input.paymentDueDay !== undefined ? { paymentDueDay: input.paymentDueDay } : {}),
-          ...(input.color !== undefined ? { color: input.color } : {}),
-          ...(input.icon !== undefined ? { icon: input.icon } : {}),
-          ...(input.includeInNetWorth !== undefined
-            ? { includeInNetWorth: input.includeInNetWorth }
-            : {}),
-          ...(input.isFavorite !== undefined ? { isFavorite: input.isFavorite } : {}),
-        }),
-      );
+      const account = await this.repository.create(workspaceId, {
+        name: input.name,
+        type: input.type,
+        nature: input.nature,
+        currency: input.currency,
+        openingBalance,
+        currentBalance: openingBalance,
+        ...(input.institutionName !== undefined ? { institutionName: input.institutionName } : {}),
+        ...(input.creditLimit !== undefined
+          ? { creditLimit: input.creditLimit === null ? null : money(input.creditLimit) }
+          : {}),
+        ...(input.billingDay !== undefined ? { billingDay: input.billingDay } : {}),
+        ...(input.paymentDueDay !== undefined ? { paymentDueDay: input.paymentDueDay } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.icon !== undefined ? { icon: input.icon } : {}),
+        ...(input.includeInNetWorth !== undefined ? { includeInNetWorth: input.includeInNetWorth } : {}),
+        ...(input.isFavorite !== undefined ? { isFavorite: input.isFavorite } : {}),
+      });
+      return this.enrichOne(workspaceId, account);
     } catch (error: unknown) {
       if (isUniqueConflict(error)) throw duplicateAccountName();
       throw error;
     }
   }
+
   async list(workspaceId: string, filters: ListAccountsInput) {
-    return (await this.repository.list(workspaceId, filters)).map(toPublicAccount);
+    return this.enrichReservations(workspaceId, await this.repository.list(workspaceId, filters));
   }
+
   async get(workspaceId: string, accountId: string) {
     const account = await this.repository.find(workspaceId, accountId);
     if (!account) throw accountNotFound();
-    return toPublicAccount(account);
+    return this.enrichOne(workspaceId, account);
   }
+
   async update(workspaceId: string, accountId: string, input: UpdateAccountInput) {
     try {
       const updated = await this.repository.mutate(workspaceId, accountId, (current) => {
@@ -102,17 +123,14 @@ export class AccountsService {
               ? input.creditLimit
               : (current.creditLimit?.toFixed(2) ?? null),
           billingDay: input.billingDay !== undefined ? input.billingDay : current.billingDay,
-          paymentDueDay:
-            input.paymentDueDay !== undefined ? input.paymentDueDay : current.paymentDueDay,
+          paymentDueDay: input.paymentDueDay !== undefined ? input.paymentDueDay : current.paymentDueDay,
         };
         validateAccountCoherence(merged);
         return {
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.type !== undefined ? { type: input.type } : {}),
           ...(input.nature !== undefined ? { nature: input.nature } : {}),
-          ...(input.institutionName !== undefined
-            ? { institutionName: input.institutionName }
-            : {}),
+          ...(input.institutionName !== undefined ? { institutionName: input.institutionName } : {}),
           ...(input.currency !== undefined ? { currency: input.currency } : {}),
           ...(input.creditLimit !== undefined
             ? { creditLimit: input.creditLimit === null ? null : money(input.creditLimit) }
@@ -121,19 +139,18 @@ export class AccountsService {
           ...(input.paymentDueDay !== undefined ? { paymentDueDay: input.paymentDueDay } : {}),
           ...(input.color !== undefined ? { color: input.color } : {}),
           ...(input.icon !== undefined ? { icon: input.icon } : {}),
-          ...(input.includeInNetWorth !== undefined
-            ? { includeInNetWorth: input.includeInNetWorth }
-            : {}),
+          ...(input.includeInNetWorth !== undefined ? { includeInNetWorth: input.includeInNetWorth } : {}),
           ...(input.isFavorite !== undefined ? { isFavorite: input.isFavorite } : {}),
         };
       });
       if (!updated) throw accountNotFound();
-      return toPublicAccount(updated);
+      return this.enrichOne(workspaceId, updated);
     } catch (error: unknown) {
       if (isUniqueConflict(error)) throw duplicateAccountName();
       throw error;
     }
   }
+
   async favorite(workspaceId: string, accountId: string, isFavorite: boolean) {
     return this.mutateState(workspaceId, accountId, { isFavorite });
   }
@@ -150,7 +167,7 @@ export class AccountsService {
   ) {
     const updated = await this.repository.mutate(workspaceId, accountId, () => data);
     if (!updated) throw accountNotFound();
-    return toPublicAccount(updated);
+    return this.enrichOne(workspaceId, updated);
   }
   async remove(workspaceId: string, userId: string, accountId: string) {
     const result = await this.repository.removeSafely(workspaceId, userId, accountId);
