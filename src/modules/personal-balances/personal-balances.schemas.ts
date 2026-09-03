@@ -14,7 +14,7 @@ export const createPersonalBalanceSchema = z.object({
   occurredOn: dateOnly.optional(),
   dueOn: dateOnly.optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
-}).superRefine((value, context) => {
+}).strict().superRefine((value, context) => {
   if (value.direction === "RECEIVABLE" && !value.sourceAccountId) {
     context.addIssue({
       code: "custom",
@@ -31,7 +31,7 @@ export const updatePersonalBalanceSchema = z.object({
   description: z.string().trim().max(250).optional().nullable(),
   dueOn: dateOnly.optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
-}).refine((value) => Object.keys(value).length > 0, "No hay cambios para guardar");
+}).strict().refine((value) => Object.keys(value).length > 0, "No hay cambios para guardar");
 
 export const personalBalanceEntrySchema = z.discriminatedUnion("type", [
   z.object({
