@@ -55,7 +55,7 @@ export const createContributionSchema = z
   .object({
     amount: contributionAmountSchema,
     contributedAt: z.iso.datetime({ offset: true }).optional(),
-    transactionId: nullableUuid.optional(),
+    accountId: z.string().uuid(),
   })
   .strict();
 
