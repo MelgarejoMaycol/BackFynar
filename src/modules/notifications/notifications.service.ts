@@ -63,11 +63,6 @@ const localParts = (date: Date, timezone: string) =>
       .map((part) => [part.type, part.value]),
   ) as Record<"year" | "month" | "day", string>;
 
-const localDate = (date: Date, timezone: string) => {
-  const parts = localParts(date, timezone);
-  return `${parts.year}-${parts.month}-${parts.day}`;
-};
-
 const monthRange = (now: Date, timezone: string) => {
   const parts = localParts(now, timezone);
   const year = Number(parts.year);
@@ -110,7 +105,9 @@ export class NotificationsService {
       return [
         {
           type: notification_type.BUDGET_ALERT,
-          title: exceeded ? `Presupuesto excedido: ${budget.name}` : `Presupuesto cerca del límite: ${budget.name}`,
+          title: exceeded
+            ? `Presupuesto excedido: ${budget.name}`
+            : `Presupuesto cerca del límite: ${budget.name}`,
           message: exceeded
             ? `Has usado ${percentage.toFixed(0)}% de este presupuesto.`
             : `Has usado ${percentage.toFixed(0)}% y el aviso está configurado desde ${Number(budget.alertThreshold).toFixed(0)}%.`,
@@ -191,7 +188,13 @@ export class NotificationsService {
     now: Date,
   ): Promise<Candidate[]> {
     if (!hasPermission(permissions, "reports.read")) return [];
-    const forecast = await forecastsService.monthEnd(workspaceId, baseCurrency, timezone, userId, now);
+    const forecast = await forecastsService.monthEnd(
+      workspaceId,
+      baseCurrency,
+      timezone,
+      userId,
+      now,
+    );
     const primary = forecast.primary;
     if (!primary || !["MEDIUM", "HIGH"].includes(primary.dataQuality)) return [];
     const lowest = Number(primary.lowestProjectedBalance.amount);
@@ -230,24 +233,15 @@ export class NotificationsService {
     if (!hasPermission(permissions, "transactions.read")) return [];
     const range = monthRange(now, timezone);
     const aggregate = async (type: "EXPENSE" | "INCOME", start: Date, end: Date) => {
+      const where = {
+        workspaceId,
+        type,
+        status: "CONFIRMED" as const,
+        occurredAt: { gte: start, lt: end },
+      };
       const [sum, count] = await Promise.all([
-        this.db.transaction.aggregate({
-          where: {
-            workspaceId,
-            type,
-            status: "CONFIRMED",
-            occurredAt: { gte: start, lt: end },
-          },
-          _sum: { amount: true },
-        }),
-        this.db.transaction.count({
-          where: {
-            workspaceId,
-            type,
-            status: "CONFIRMED",
-            occurredAt: { gte: start, lt: end },
-          },
-        }),
+        this.db.transaction.aggregate({ where, _sum: { amount: true } }),
+        this.db.transaction.count({ where }),
       ]);
       return { total: Number(sum._sum.amount ?? 0), count };
     };
@@ -331,7 +325,10 @@ export class NotificationsService {
       return [
         {
           type: notification_type.GOAL_PROGRESS,
-          title: milestone === 100 ? `Meta alcanzada: ${goal.name}` : `${goal.name} llegó al ${milestone}%`,
+          title:
+            milestone === 100
+              ? `Meta alcanzada: ${goal.name}`
+              : `${goal.name} llegó al ${milestone}%`,
           message:
             milestone === 100
               ? "Alcanzaste el valor objetivo de esta meta."
@@ -345,7 +342,12 @@ export class NotificationsService {
             sourceId: goal.id,
             actionUrl: `/app/goals/${goal.id}`,
             actionLabel: "Ver meta",
-            context: { percentage: Number(percentage.toFixed(2)), milestone, saved, target },
+            context: {
+              percentage: Number(percentage.toFixed(2)),
+              milestone,
+              saved,
+              target,
+            },
           },
         },
       ];
@@ -462,7 +464,9 @@ export class NotificationsService {
   }
 
   private async requireOwned(userId: string, workspaceId: string, id: string) {
-    const notification = await this.db.notification.findFirst({ where: { id, userId, workspaceId } });
+    const notification = await this.db.notification.findFirst({
+      where: { id, userId, workspaceId },
+    });
     if (!notification) throw new NotFoundError("Alerta no encontrada");
     return notification;
   }
