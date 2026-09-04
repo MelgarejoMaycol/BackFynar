@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { ConflictError, NotFoundError } from "../../common/errors/app-error.js";
 import { prisma } from "../../database/prisma.js";
 import { obligationsService } from "../obligations/obligations.service.js";
@@ -32,6 +32,9 @@ const serializeCandidate = (candidate: RecurringDetectionCandidate) => ({
   lastSeenAt: candidate.lastSeenAt.toISOString(),
   nextExpectedAt: candidate.nextExpectedAt.toISOString(),
 });
+
+const toJson = (payload: InsightPayload): Prisma.InputJsonValue =>
+  payload as unknown as Prisma.InputJsonValue;
 
 const payloadOf = (data: unknown): InsightPayload | null => {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
@@ -89,7 +92,7 @@ export class RecurringDetectionWorkflow {
             title: `Posible pago recurrente: ${candidate.displayLabel}`,
             summary: summaryFor(candidate),
             confidence: candidate.confidence.toFixed(4),
-            data: payload,
+            data: toJson(payload),
             isDismissed: false,
             isRead: false,
             validFrom: candidate.firstSeenAt,
@@ -108,7 +111,7 @@ export class RecurringDetectionWorkflow {
           summary: summaryFor(candidate),
           severity: 1,
           confidence: candidate.confidence.toFixed(4),
-          data: payload,
+          data: toJson(payload),
           validFrom: candidate.firstSeenAt,
           modelVersion: MODEL_VERSION,
         },
@@ -138,7 +141,7 @@ export class RecurringDetectionWorkflow {
     };
     const updated = await this.db.aiInsight.update({
       where: { id: insight.id },
-      data: { isDismissed: true, isRead: true, validUntil, data: updatedPayload },
+      data: { isDismissed: true, isRead: true, validUntil, data: toJson(updatedPayload) },
     });
     return { id: updated.id, dismissedUntil: validUntil };
   }
@@ -230,7 +233,7 @@ export class RecurringDetectionWorkflow {
       };
       await this.db.aiInsight.update({
         where: { id: insight.id },
-        data: { isRead: true, isDismissed: false, validUntil: null, data: confirmedPayload },
+        data: { isRead: true, isDismissed: false, validUntil: null, data: toJson(confirmedPayload) },
       });
       return {
         obligation,
