@@ -1,7 +1,18 @@
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import type { ZodType } from "zod";
 import { ValidationError } from "../../common/errors/app-error.js";
-import { recurringDetectionService as service } from "./recurring-detection.service.js";
+import {
+  confirmRecurringSuggestionSchema,
+  recurringRunSchema,
+  recurringSuggestionIdSchema,
+} from "./recurring-detection.schemas.js";
+import { recurringDetectionWorkflow as workflow } from "./recurring-detection.workflow.js";
+
+const parse = <T>(schema: ZodType<T>, value: unknown): T => {
+  const result = schema.safeParse(value);
+  if (!result.success) throw new ValidationError("Datos inválidos", result.error.issues);
+  return result.data;
+};
 
 const asyncHandler =
   (handler: (request: Request, response: Response) => Promise<unknown>) =>
@@ -14,33 +25,37 @@ const monthsFromQuery = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 12;
 };
 
-const confirmSchema = z
-  .object({
-    fingerprint: z.string().trim().min(3).max(500),
-    months: z.number().int().min(3).max(24).optional(),
-  })
-  .strict();
-
 export const suggestions = asyncHandler(async (request, response) => {
   response.json({
     success: true,
-    data: await service.suggestions(
+    data: await workflow.run(
       request.workspace!.workspaceId,
       monthsFromQuery(request.query.months),
     ),
   });
 });
 
-export const confirm = asyncHandler(async (request, response) => {
-  const parsed = confirmSchema.safeParse(request.body);
-  if (!parsed.success) throw new ValidationError("Datos inválidos", parsed.error.issues);
+export const run = asyncHandler(async (request, response) => {
+  const input = parse(recurringRunSchema, request.body ?? {});
+  response.json({
+    success: true,
+    data: await workflow.run(request.workspace!.workspaceId, input.months),
+  });
+});
 
+export const dismiss = asyncHandler(async (request, response) => {
+  const suggestionId = parse(recurringSuggestionIdSchema, request.params.suggestionId);
+  response.json({
+    success: true,
+    data: await workflow.dismiss(request.workspace!.workspaceId, suggestionId),
+  });
+});
+
+export const confirm = asyncHandler(async (request, response) => {
+  const suggestionId = parse(recurringSuggestionIdSchema, request.params.suggestionId);
+  const input = parse(confirmRecurringSuggestionSchema, request.body ?? {});
   response.status(201).json({
     success: true,
-    data: await service.confirm(
-      request.workspace!.workspaceId,
-      parsed.data.fingerprint,
-      parsed.data.months ?? 12,
-    ),
+    data: await workflow.confirm(request.workspace!.workspaceId, suggestionId, input),
   });
 });
