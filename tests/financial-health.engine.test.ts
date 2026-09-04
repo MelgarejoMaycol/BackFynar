@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildFinancialHealth,
   FINANCIAL_HEALTH_VERSION,
+  type FinancialHealthDimensionId,
 } from "../src/modules/financial-health/financial-health.engine.js";
 
 const completeInput = {
@@ -35,17 +36,21 @@ describe("salud financiera v1", () => {
 
   it("calcula cada dimensión con factores trazables", () => {
     const result = buildFinancialHealth(completeInput);
-    const byId = Object.fromEntries(result.dimensions.map((dimension) => [dimension.id, dimension]));
+    const dimension = (id: FinancialHealthDimensionId) => {
+      const found = result.dimensions.find((item) => item.id === id);
+      expect(found).toBeDefined();
+      return found!;
+    };
 
-    expect(byId.LIQUIDITY.score).toBe(100);
-    expect(byId.LIQUIDITY.metrics.coverageMonths).toBe(3);
-    expect(byId.DEBT.metrics.debtToAnnualIncome).toBeCloseTo(1 / 6, 4);
-    expect(byId.SPENDING_CONTROL.score).toBe(90);
-    expect(byId.SPENDING_CONTROL.metrics.projectedUtilization).toBe(1.1);
-    expect(byId.SAVINGS.score).toBe(100);
-    expect(byId.SAVINGS.metrics.savingsRate).toBe(0.2);
-    expect(byId.PAYMENT_COMPLIANCE.score).toBe(75);
-    expect(byId.PAYMENT_COMPLIANCE.metrics.onTimeRate).toBe(0.75);
+    expect(dimension("LIQUIDITY").score).toBe(100);
+    expect(dimension("LIQUIDITY").metrics.coverageMonths).toBe(3);
+    expect(dimension("DEBT").metrics.debtToAnnualIncome).toBeCloseTo(1 / 6, 4);
+    expect(dimension("SPENDING_CONTROL").score).toBe(90);
+    expect(dimension("SPENDING_CONTROL").metrics.projectedUtilization).toBe(1.1);
+    expect(dimension("SAVINGS").score).toBe(100);
+    expect(dimension("SAVINGS").metrics.savingsRate).toBe(0.2);
+    expect(dimension("PAYMENT_COMPLIANCE").score).toBe(75);
+    expect(dimension("PAYMENT_COMPLIANCE").metrics.onTimeRate).toBe(0.75);
   });
 
   it("no publica puntuación general con menos de tres dimensiones disponibles", () => {
@@ -68,12 +73,12 @@ describe("salud financiera v1", () => {
     expect(result.coverage).toBe(20);
     expect(result.score).toBeNull();
     expect(result.band).toBe("INSUFFICIENT");
-    expect(result.dimensions.filter((dimension) => !dimension.available)).toHaveLength(4);
+    expect(result.dimensions.filter((item) => !item.available)).toHaveLength(4);
   });
 
   it("no confunde ausencia de deuda con falta de datos", () => {
     const result = buildFinancialHealth({ ...completeInput, totalDebt: "0.00" });
-    const debt = result.dimensions.find((dimension) => dimension.id === "DEBT");
+    const debt = result.dimensions.find((item) => item.id === "DEBT");
 
     expect(debt).toMatchObject({ available: true, score: 100, status: "SOLID" });
     expect(debt?.metrics.totalDebt).toBe("0.00");
