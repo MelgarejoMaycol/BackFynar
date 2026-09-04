@@ -13,6 +13,7 @@ import simulationsRouter from "../simulations/simulations.routes.js";
 import debtsRouter from "../debts/debts.routes.js";
 import obligationsRouter from "../obligations/obligations.routes.js";
 import recurringDetectionRouter from "../recurring-detection/recurring-detection.routes.js";
+import notificationsRouter from "../notifications/notifications.routes.js";
 import cardsRouter from "../cards/cards.routes.js";
 import liabilitiesRouter from "../liabilities/liabilities.routes.js";
 import personalBalancesRouter from "../personal-balances/personal-balances.routes.js";
@@ -33,6 +34,7 @@ router.use("/:workspaceId/simulations", resolveWorkspaceContext, simulationsRout
 router.use("/:workspaceId/debts", resolveWorkspaceContext, debtsRouter);
 router.use("/:workspaceId/obligations", resolveWorkspaceContext, obligationsRouter);
 router.use("/:workspaceId/recurring-detection", resolveWorkspaceContext, recurringDetectionRouter);
+router.use("/:workspaceId/notifications", resolveWorkspaceContext, notificationsRouter);
 router.use("/:workspaceId/cards", resolveWorkspaceContext, cardsRouter);
 router.use("/:workspaceId/goals", resolveWorkspaceContext, goalsRouter);
 router.use("/:workspaceId/personal-balances", resolveWorkspaceContext, personalBalancesRouter);
