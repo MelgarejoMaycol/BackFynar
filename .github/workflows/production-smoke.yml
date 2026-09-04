@@ -57,3 +57,25 @@ jobs:
           done
           echo "La ruta de metas no quedó disponible/protegida a tiempo"
           exit 1
+
+      - name: Wait for recurring detection and alert center routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace="00000000-0000-0000-0000-000000000000"
+          for attempt in $(seq 1 30); do
+            recurring_status=$(curl --silent --show-error --max-time 30 \
+              -o recurring-unauthorized.json -w '%{http_code}' \
+              "$BASE_URL/api/v1/workspaces/$workspace/recurring-detection/suggestions?months=12" || true)
+            alerts_status=$(curl --silent --show-error --max-time 30 \
+              -o alerts-unauthorized.json -w '%{http_code}' \
+              "$BASE_URL/api/v1/workspaces/$workspace/notifications/summary" || true)
+            if [ "$recurring_status" = "401" ] && [ "$alerts_status" = "401" ]; then
+              echo "Partes 5 y 6 desplegadas y protegidas correctamente"
+              exit 0
+            fi
+            echo "Esperando partes 5/6 ($attempt/30): recurring=$recurring_status alerts=$alerts_status"
+            sleep 10
+          done
+          echo "Las rutas de las partes 5/6 no quedaron disponibles/protegidas a tiempo"
+          exit 1
