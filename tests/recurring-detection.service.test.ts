@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { RecurringDetectionCandidate } from "../src/modules/recurring-detection/domain/index.js";
-import { isCandidateAlreadyConfigured } from "../src/modules/recurring-detection/recurring-detection.service.js";
+import {
+  candidateToObligationInput,
+  isCandidateAlreadyConfigured,
+} from "../src/modules/recurring-detection/recurring-detection.service.js";
 
 const candidate = (overrides: Partial<RecurringDetectionCandidate> = {}): RecurringDetectionCandidate => ({
   fingerprint: "netflix:account-1:MONTHLY",
@@ -70,5 +73,37 @@ describe("isCandidateAlreadyConfigured", () => {
         },
       ]),
     ).toBe(true);
+  });
+});
+
+describe("candidateToObligationInput", () => {
+  it("convierte una detección mensual en una obligación compatible con el módulo existente", () => {
+    const input = candidateToObligationInput(candidate(), "COP");
+
+    expect(input).toMatchObject({
+      name: "Netflix",
+      expectedAmount: "26900.00",
+      currency: "COP",
+      amountType: "FIXED",
+      paymentAccountId: "account-1",
+      frequency: "MONTHLY",
+      intervalValue: 1,
+      dayOfMonth: 5,
+      startsOn: "2026-09-05",
+    });
+  });
+
+  it("convierte una detección quincenal a recurrencia semanal cada dos semanas", () => {
+    const input = candidateToObligationInput(
+      candidate({
+        frequency: "BIWEEKLY",
+        nextExpectedAt: new Date("2026-09-18T00:00:00Z"),
+      }),
+      "COP",
+    );
+
+    expect(input.frequency).toBe("WEEKLY");
+    expect(input.intervalValue).toBe(2);
+    expect(input.dayOfWeek).toBe(5);
   });
 });
