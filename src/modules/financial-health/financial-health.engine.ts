@@ -141,7 +141,11 @@ function debtDimension(input: FinancialHealthInput): FinancialHealthDimension {
       summary: "No hay saldo de deuda activo en la moneda base.",
       explanation:
         "La dimensión compara deuda activa con ingreso anualizado. Sin deuda activa, la exposición por endeudamiento es mínima.",
-      metrics: { totalDebt: "0.00", monthlyIncomeReference: monthlyIncome ? fixed(monthlyIncome) : null, debtToAnnualIncome: 0 },
+      metrics: {
+        totalDebt: "0.00",
+        monthlyIncomeReference: monthlyIncome ? fixed(monthlyIncome) : null,
+        debtToAnnualIncome: 0,
+      },
       action: null,
     };
   }
@@ -149,13 +153,17 @@ function debtDimension(input: FinancialHealthInput): FinancialHealthDimension {
     return {
       id: "DEBT",
       label: "Endeudamiento",
-      score: 0,
-      available: true,
-      status: "FRAGILE",
-      summary: "Hay deuda activa y no existe ingreso de referencia suficiente para respaldarla.",
+      score: null,
+      available: false,
+      status: "INSUFFICIENT",
+      summary: "Hay deuda activa, pero todavía no existe un ingreso de referencia suficiente para dimensionarla.",
       explanation:
-        "Cuando existe deuda pero el historial no muestra ingreso positivo de referencia, Fynar no asume ingresos faltantes.",
-      metrics: { totalDebt: fixed(debt), monthlyIncomeReference: monthlyIncome ? fixed(monthlyIncome) : null, debtToAnnualIncome: null },
+        "Fynar conserva el saldo real de deuda, pero no penaliza la puntuación por falta de historial de ingresos. La dimensión se habilita cuando existe un ingreso mensual de referencia positivo.",
+      metrics: {
+        totalDebt: fixed(debt),
+        monthlyIncomeReference: monthlyIncome ? fixed(monthlyIncome) : null,
+        debtToAnnualIncome: null,
+      },
       action: { label: "Revisar deudas", url: "/app/commitments" },
     };
   }
@@ -195,7 +203,11 @@ function spendingDimension(input: FinancialHealthInput): FinancialHealthDimensio
       summary: "No hay presupuestos activos aplicables al periodo actual.",
       explanation:
         "Esta versión mide el control del gasto con presupuestos reales para no duplicar la dimensión de ahorro ni inventar un límite de gasto.",
-      metrics: { budgetAmount: "0.00", projectedBudgetSpend: "0.00", projectedUtilization: null },
+      metrics: {
+        budgetAmount: "0.00",
+        projectedBudgetSpend: "0.00",
+        projectedUtilization: null,
+      },
       action: { label: "Crear o revisar presupuestos", url: "/app/budgets" },
     };
   }
@@ -237,7 +249,11 @@ function savingsDimension(input: FinancialHealthInput): FinancialHealthDimension
       status: "INSUFFICIENT",
       summary: "El periodo actual no tiene ingresos confirmados suficientes para medir una tasa de ahorro.",
       explanation: "Fynar no inventa ingresos ni calcula una tasa de ahorro dividiendo por cero.",
-      metrics: { periodIncome: fixed(income), periodExpenses: fixed(expenses), savingsRate: null },
+      metrics: {
+        periodIncome: fixed(income),
+        periodExpenses: fixed(expenses),
+        savingsRate: null,
+      },
       action: { label: "Ver metas", url: "/app/goals" },
     };
   }
@@ -279,7 +295,12 @@ function paymentsDimension(input: FinancialHealthInput): FinancialHealthDimensio
       summary: "No hay vencimientos evaluables en la ventana reciente.",
       explanation:
         "Se necesitan pagos con fecha de vencimiento para medir cumplimiento. La ausencia de pagos no se interpreta automáticamente como 100 puntos.",
-      metrics: { paymentsDue: 0, paymentsOnTime: 0, paymentsLateOrMissed: 0, onTimeRate: null },
+      metrics: {
+        paymentsDue: 0,
+        paymentsOnTime: 0,
+        paymentsLateOrMissed: 0,
+        onTimeRate: null,
+      },
       action: { label: "Ver compromisos", url: "/app/commitments" },
     };
   }
@@ -313,16 +334,23 @@ export function buildFinancialHealth(input: FinancialHealthInput): FinancialHeal
     paymentsDimension(input),
   ];
   const available = dimensions.filter(
-    (dimension): dimension is FinancialHealthDimension & { score: number } => dimension.score !== null,
+    (dimension): dimension is FinancialHealthDimension & { score: number } =>
+      dimension.score !== null,
   );
   const coverage = Math.round((available.length / dimensions.length) * 100);
   const score =
     available.length >= 3
-      ? Math.round(available.reduce((total, dimension) => total + dimension.score, 0) / available.length)
+      ? Math.round(
+          available.reduce((total, dimension) => total + dimension.score, 0) /
+            available.length,
+        )
       : null;
   const band = bandFor(score);
 
-  const recommendationText: Record<FinancialHealthDimensionId, { title: string; detail: string }> = {
+  const recommendationText: Record<
+    FinancialHealthDimensionId,
+    { title: string; detail: string }
+  > = {
     LIQUIDITY: {
       title: "Fortalecer la liquidez disponible",
       detail: "Revisa cuánto dinero está libre después de reservas y compromisos próximos.",
@@ -337,7 +365,8 @@ export function buildFinancialHealth(input: FinancialHealthInput): FinancialHeal
     },
     SAVINGS: {
       title: "Recuperar margen de ahorro",
-      detail: "Revisa la diferencia entre ingresos y gastos y dirige el margen disponible a tus objetivos.",
+      detail:
+        "Revisa la diferencia entre ingresos y gastos y dirige el margen disponible a tus objetivos.",
     },
     PAYMENT_COMPLIANCE: {
       title: "Evitar nuevos atrasos",
@@ -348,8 +377,7 @@ export function buildFinancialHealth(input: FinancialHealthInput): FinancialHeal
   const recommendations = dimensions
     .filter(
       (dimension) =>
-        dimension.action &&
-        (dimension.score === null || dimension.score < 60),
+        dimension.action && (dimension.score === null || dimension.score < 60),
     )
     .sort((left, right) => (left.score ?? -1) - (right.score ?? -1))
     .slice(0, 3)
@@ -373,7 +401,7 @@ export function buildFinancialHealth(input: FinancialHealthInput): FinancialHeal
         "Promedio simple de las dimensiones disponibles. Todas pesan lo mismo en v1 para no privilegiar una dimensión sin evidencia de producto. Se requieren al menos 3 de 5 dimensiones para publicar puntuación general.",
       rules: [
         "Liquidez: cobertura de hasta 3 meses del gasto mensual de referencia.",
-        "Endeudamiento: deuda activa frente al ingreso anualizado de referencia.",
+        "Endeudamiento: deuda activa frente al ingreso anualizado de referencia; sin ingreso de referencia suficiente, la dimensión no puntúa.",
         "Control del gasto: cumplimiento de la proyección de presupuestos activos.",
         "Ahorro: flujo neto del periodo frente a ingresos confirmados; 20% alcanza el máximo de la dimensión.",
         "Pagos: proporción de vencimientos pagados a tiempo en los últimos 90 días.",
