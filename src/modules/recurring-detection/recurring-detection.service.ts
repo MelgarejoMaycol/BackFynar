@@ -1,5 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
+import { NotFoundError } from "../../common/errors/app-error.js";
 import { prisma } from "../../database/prisma.js";
+import { obligationsService } from "../obligations/obligations.service.js";
+import type { CreateObligationInput } from "../obligations/obligations.schemas.js";
 import {
   detectRecurringPayments,
   normalizeRecurringLabel,
@@ -16,7 +19,7 @@ interface ExistingRecurringObligation {
   };
 }
 
-const frequencyContract = (
+export const frequencyContract = (
   frequency: RecurringFrequency,
 ): { frequency: ExistingRecurringObligation["recurrenceRules"]["frequency"]; intervalValue: number } => {
   switch (frequency) {
@@ -48,6 +51,32 @@ export function isCandidateAlreadyConfigured(
       obligation.recurrenceRules.intervalValue === expected.intervalValue
     );
   });
+}
+
+const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
+
+export function candidateToObligationInput(
+  candidate: RecurringDetectionCandidate,
+  currency: string,
+): CreateObligationInput {
+  const recurrence = frequencyContract(candidate.frequency);
+  const next = candidate.nextExpectedAt;
+  return {
+    name: candidate.displayLabel,
+    description: `Detectado automáticamente a partir de ${candidate.evidenceCount} movimientos similares.`,
+    expectedAmount: candidate.typicalAmount.toFixed(2),
+    currency,
+    amountType: candidate.amountType,
+    paymentAccountId: candidate.accountId,
+    categoryId: candidate.categoryId,
+    remindersEnabled: true,
+    frequency: recurrence.frequency,
+    intervalValue: recurrence.intervalValue,
+    dayOfWeek: recurrence.frequency === "WEEKLY" ? next.getUTCDay() : null,
+    dayOfMonth: recurrence.frequency === "MONTHLY" ? next.getUTCDate() : null,
+    startsOn: dateOnly(next),
+    endsOn: null,
+  };
 }
 
 export class RecurringDetectionService {
@@ -115,6 +144,39 @@ export class RecurringDetectionService {
       analyzedTransactions: transactions.length,
       detectedCandidates: candidates.length,
       suggestions,
+    };
+  }
+
+  async confirm(workspaceId: string, fingerprint: string, months = 12) {
+    const [scan, workspace] = await Promise.all([
+      this.suggestions(workspaceId, months),
+      this.db.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { baseCurrency: true },
+      }),
+    ]);
+
+    const candidate = scan.suggestions.find((item) => item.fingerprint === fingerprint);
+    if (!candidate) {
+      throw new NotFoundError(
+        "Sugerencia recurrente no encontrada o ya configurada",
+      );
+    }
+    if (!workspace) throw new NotFoundError("Workspace no encontrado");
+
+    const obligation = await obligationsService.create(
+      workspaceId,
+      candidateToObligationInput(candidate, workspace.baseCurrency),
+    );
+
+    return {
+      obligation,
+      source: {
+        fingerprint: candidate.fingerprint,
+        confidence: candidate.confidence,
+        evidenceCount: candidate.evidenceCount,
+        transactionIds: candidate.transactionIds,
+      },
     };
   }
 }
