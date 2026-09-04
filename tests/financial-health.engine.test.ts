@@ -84,6 +84,26 @@ describe("salud financiera v1", () => {
     expect(debt?.metrics.totalDebt).toBe("0.00");
   });
 
+  it("no castiga la puntuación cuando hay deuda pero todavía falta ingreso de referencia", () => {
+    const result = buildFinancialHealth({
+      ...completeInput,
+      totalDebt: "2500000.00",
+      monthlyIncomeReference: null,
+    });
+    const debt = result.dimensions.find((item) => item.id === "DEBT");
+
+    expect(debt).toMatchObject({
+      available: false,
+      score: null,
+      status: "INSUFFICIENT",
+    });
+    expect(debt?.metrics.totalDebt).toBe("2500000.00");
+    expect(debt?.metrics.debtToAnnualIncome).toBeNull();
+    expect(result.availableDimensions).toBe(4);
+    expect(result.coverage).toBe(80);
+    expect(result.methodology.rules.join(" ")).toContain("sin ingreso de referencia suficiente");
+  });
+
   it("genera recomendaciones solo desde métricas concretas y acciones existentes", () => {
     const result = buildFinancialHealth({
       ...completeInput,
