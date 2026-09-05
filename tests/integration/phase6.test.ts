@@ -49,7 +49,9 @@ describe.sequential("Fase 6 dashboard financiero real", () => {
   it("prepara dos workspaces aislados y confirma el dashboard vacío", async () => {
     for (const actor of actors) {
       const { user, workspace, login } = await registerVerified({
-        email: actor.email, password, firstName: "Phase6",
+        email: actor.email,
+        password,
+        firstName: "Phase6",
       });
       actor.id = user.id;
       actor.access = login.body.data.tokens.accessToken;
@@ -283,6 +285,10 @@ describe.sequential("Fase 6 dashboard financiero real", () => {
         totalExpenses: "400.00",
         netCashFlow: "100.00",
         netWorth: "700.00",
+        expectedCollections: "0.00",
+        scheduledPayments: "0.00",
+        projectedEndLiquidity: "1500.00",
+        forecastDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       },
       {
         currency: "USD",
@@ -291,6 +297,10 @@ describe.sequential("Fase 6 dashboard financiero real", () => {
         totalExpenses: "5.00",
         netCashFlow: "15.00",
         netWorth: "50.00",
+        expectedCollections: "0.00",
+        scheduledPayments: "0.00",
+        projectedEndLiquidity: "50.00",
+        forecastDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       },
     ]);
     expect(response.body.data.accountBalances).toHaveLength(4);

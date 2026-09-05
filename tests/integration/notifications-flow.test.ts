@@ -19,7 +19,7 @@ const currentMonthRange = () => {
   return {
     startsOn: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
     endsOn: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)),
-    occurredAt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), Math.max(1, now.getUTCDate()), 12)),
+    occurredAt: now,
   };
 };
 

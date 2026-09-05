@@ -10,6 +10,7 @@ router.post("/loans", requirePermission("debts.write"), controller.create);
 router.get("/loans/:loanId", requirePermission("debts.read"), controller.get);
 router.patch("/loans/:loanId", requirePermission("debts.write"), controller.update);
 router.delete("/loans/:loanId", requirePermission("debts.write"), controller.archive);
+router.post("/loans/:loanId/payments", requirePermission("debts.write"), controller.collect);
 router.post("/loans/:loanId/installments/:installmentId/payments", requirePermission("debts.write"), controller.pay);
 router.post("/loans/:loanId/payments/:paymentId/reverse", requirePermission("debts.write"), controller.reverse);
 export default router;

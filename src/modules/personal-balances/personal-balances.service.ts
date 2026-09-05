@@ -346,7 +346,7 @@ export class PersonalBalancesService {
           FOR UPDATE
         `);
         const account = await tx.financialAccount.findFirst({
-          where: { id: accountId, workspaceId, nature: "ASSET", isActive: true, deletedAt: null },
+          where: { id: accountId, workspaceId, nature: "ASSET", isActive: true, deletedAt: null, issuedLoansReceivable: { none: {} } },
         });
         if (!account) throw new NotFoundError("Cuenta activa no encontrada");
         if (account.currency !== current.currency) {

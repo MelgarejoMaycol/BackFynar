@@ -10,6 +10,7 @@ import {
 } from "./dashboard.repository.js";
 import type { DashboardQuery } from "./dashboard.schemas.js";
 import { ValidationError } from "../../common/errors/app-error.js";
+import { liabilitiesService, type LiabilitiesService } from "../liabilities/liabilities.service.js";
 
 const zero = () => new Prisma.Decimal(0);
 const fixed = (value: Prisma.Decimal) => value.toDecimalPlaces(2).toFixed(2);
@@ -57,6 +58,7 @@ export class DashboardService {
   constructor(
     private readonly repository: DashboardRepository = dashboardRepository,
     private readonly budgets: BudgetsService = budgetsService,
+    private readonly liabilities: LiabilitiesService = liabilitiesService,
   ) {}
   async get(
     workspaceId: string,
@@ -75,7 +77,12 @@ export class DashboardService {
         "Configura el día de inicio de tu ciclo financiero antes de usar Mi ciclo.",
       );
     const period = buildDashboardPeriod(query, timezone, now, financialCycleStartDay);
-    const [data, budgetPage] = await Promise.all([
+    const forecastStart = localDate(now, timezone);
+    const [forecastYear, forecastMonth] = forecastStart.split("-").map(Number);
+    const forecastEnd = new Date(Date.UTC(forecastYear!, forecastMonth!, 0))
+      .toISOString()
+      .slice(0, 10);
+    const [data, budgetPage, loanCollections, scheduledItems] = await Promise.all([
       this.repository.read(workspaceId, period, query.recentLimit),
       this.budgets.list(workspaceId, timezone, {
         includeArchived: "false",
@@ -84,7 +91,28 @@ export class DashboardService {
         page: 1,
         limit: 100,
       }),
+      this.repository.loanCollections(workspaceId, forecastStart, forecastEnd),
+      this.liabilities.calendarRange(workspaceId, forecastStart, forecastEnd),
     ]);
+    const sourcePriority: Record<string, number> = {
+      ACTUAL: 0,
+      INFORMED: 1,
+      ESTIMATED: 2,
+      SCHEDULED: 3,
+      PROJECTED: 4,
+    };
+    const scheduledByResourceDate = new Map<string, (typeof scheduledItems)[number]>();
+    for (const item of scheduledItems) {
+      const key = `${item.resourceId}:${item.date}`;
+      const currentItem = scheduledByResourceDate.get(key);
+      if (
+        !currentItem ||
+        (sourcePriority[item.source] ?? 99) < (sourcePriority[currentItem.source] ?? 99)
+      ) {
+        scheduledByResourceDate.set(key, item);
+      }
+    }
+    const scheduled = [...scheduledByResourceDate.values()];
     const current = totalsMap(data.currentTotals);
     const previous = totalsMap(data.previousTotals);
     const reservedByAccount = new Map(
@@ -93,6 +121,9 @@ export class DashboardService {
     const currencies = new Set<string>([
       baseCurrency,
       ...data.accounts.map((account) => account.currency),
+      ...data.receivables.map((account) => account.currency),
+      ...loanCollections.map((item) => item.currency),
+      ...scheduled.map((item) => item.currency),
       ...current.keys(),
       ...previous.keys(),
     ]);
@@ -106,6 +137,8 @@ export class DashboardService {
         .filter((account) => account.nature === "ASSET")
         .reduce((sum, account) => sum.plus(reservedByAccount.get(account.id) ?? zero()), zero());
       const availableMoney = totalMoney.minus(reservedForGoals);
+      const receivableBalance =
+        data.receivables.find((item) => item.currency === currency)?._sum.currentBalance ?? zero();
       const netWorth = accounts
         .filter((account) => account.includeInNetWorth)
         .reduce(
@@ -114,7 +147,13 @@ export class DashboardService {
               ? sum.plus(account.currentBalance)
               : sum.minus(account.currentBalance.abs()),
           zero(),
-        );
+        )
+        .plus(receivableBalance);
+      const expectedCollections =
+        loanCollections.find((item) => item.currency === currency)?.amount ?? zero();
+      const scheduledPayments = scheduled
+        .filter((item) => item.currency === currency)
+        .reduce((sum, item) => sum.plus(item.amount), zero());
       return {
         currency,
         ...(reservedForGoals.isZero()
@@ -128,6 +167,12 @@ export class DashboardService {
         totalExpenses: fixed(totals.expenses),
         netCashFlow: fixed(totals.income.minus(totals.expenses)),
         netWorth: fixed(netWorth),
+        expectedCollections: fixed(expectedCollections),
+        scheduledPayments: fixed(scheduledPayments),
+        projectedEndLiquidity: fixed(
+          availableMoney.plus(expectedCollections).minus(scheduledPayments),
+        ),
+        forecastDate: forecastEnd,
       };
     });
     const categoryById = new Map(data.categories.map((category) => [category.id, category]));
@@ -215,12 +260,15 @@ export class DashboardService {
       summariesByCurrency,
       accountBalances: data.accounts.map((account) => {
         const base = toDashboardAccount(account);
-        const reserved = account.nature === "ASSET" ? (reservedByAccount.get(account.id) ?? zero()) : zero();
+        const reserved =
+          account.nature === "ASSET" ? (reservedByAccount.get(account.id) ?? zero()) : zero();
         return {
           ...base,
           reservedForGoals: fixed(reserved),
           availableBalance: fixed(
-            account.nature === "ASSET" ? account.currentBalance.minus(reserved) : account.currentBalance,
+            account.nature === "ASSET"
+              ? account.currentBalance.minus(reserved)
+              : account.currentBalance,
           ),
         };
       }),

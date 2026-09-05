@@ -532,6 +532,7 @@ export class ObligationsService {
           isActive: true,
           deletedAt: null,
           OR: [{ nature: "ASSET" }, { type: "CREDIT_CARD", nature: "LIABILITY" }],
+          issuedLoansReceivable: { none: {} },
         },
       });
       if (!o || !a) throw new NotFoundError("Ocurrencia o cuenta no encontrada");
@@ -690,10 +691,12 @@ export class ObligationsService {
             isActive: true,
             deletedAt: null,
             OR: [{ nature: "ASSET" }, { type: "CREDIT_CARD", nature: "LIABILITY" }],
+            issuedLoansReceivable: { none: {} },
           },
         }),
       ]);
-      if (!currentAccount || !account) throw new NotFoundError("Cuenta o tarjeta activa no encontrada");
+      if (!currentAccount || !account)
+        throw new NotFoundError("Cuenta o tarjeta activa no encontrada");
       if (account.currency !== current.occurrence.obligation.currency)
         throw new ConflictError("Moneda incompatible");
 

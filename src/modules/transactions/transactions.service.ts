@@ -154,6 +154,18 @@ export class TransactionsService {
       });
     const source = accounts.find((a) => a.id === accountId)!;
     const destination = destinationId ? accounts.find((a) => a.id === destinationId)! : null;
+    const receivable = await tx.issuedLoan.findFirst({
+      where: {
+        workspaceId,
+        receivableAccountId: { in: ids },
+      },
+      select: { id: true },
+    });
+    if (receivable)
+      throw new ConflictError(
+        "Cuenta por cobrar no operable",
+        "Los cobros de préstamos deben registrarse vinculando el préstamo; la cuenta por cobrar no puede usarse como cuenta de pago.",
+      );
     if (type === "INCOME" && source.nature !== "ASSET" && source.type !== "CREDIT_CARD")
       throw new ConflictError(
         "Ingreso en pasivo no soportado",
@@ -409,6 +421,16 @@ export class TransactionsService {
           "Movimiento protegido por pago de obligación",
           "Este movimiento fue generado por un pago de obligación. Edita el pago original para conservar saldos y estado sincronizados.",
         );
+      if (
+        current.metadata &&
+        typeof current.metadata === "object" &&
+        !Array.isArray(current.metadata) &&
+        current.metadata["lending"] === true
+      )
+        throw new ConflictError(
+          "Movimiento protegido por préstamo",
+          "Este movimiento pertenece a un préstamo. Edítalo o reviértelo desde el detalle del préstamo para conservar cuotas y saldos.",
+        );
       assertSupportedFinancialType(current.type);
       if (current.version !== input.version) throw versionConflict();
       if (current.status !== "CONFIRMED")
@@ -505,6 +527,16 @@ export class TransactionsService {
         throw new ConflictError(
           "Movimiento protegido por pago de obligación",
           "Este movimiento pertenece a un pago de obligación. Reviértelo desde la obligación para conservar el historial y los saldos.",
+        );
+      if (
+        current.metadata &&
+        typeof current.metadata === "object" &&
+        !Array.isArray(current.metadata) &&
+        current.metadata["lending"] === true
+      )
+        throw new ConflictError(
+          "Movimiento protegido por préstamo",
+          "Este movimiento pertenece a un préstamo. Reviértelo desde el detalle del préstamo para conservar cuotas y saldos.",
         );
       assertSupportedFinancialType(current.type);
       if (current.status === "CANCELLED") return { mode: "CANCELLED" as const };

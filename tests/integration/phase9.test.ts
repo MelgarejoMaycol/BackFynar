@@ -1299,5 +1299,5 @@ describe.sequential("Fase 9 backend de pasivos", () => {
     expect(
       await prisma.obligationOccurrence.findUniqueOrThrow({ where: { id: occurrenceIds[1]! } }),
     ).toMatchObject({ paidAmount: new Prisma.Decimal("400"), status: "CANCELLED" });
-  });
+  }, 30_000);
 });

@@ -21,6 +21,9 @@ export class AccountsRepository {
       where: {
         workspaceId,
         deletedAt: null,
+        // Issued-loan receivables are accounting control accounts. They form part of
+        // net worth, but they are never liquid accounts a user can spend from.
+        issuedLoansReceivable: { none: {} },
         isActive: filters.archived === "true" ? false : filters.archived === "false" ? true : true,
         ...(filters.excludeCreditCards === "true"
           ? { type: { not: "CREDIT_CARD" as const } }
@@ -44,7 +47,12 @@ export class AccountsRepository {
   }
   find(workspaceId: string, accountId: string) {
     return this.database.financialAccount.findFirst({
-      where: { id: accountId, workspaceId, deletedAt: null },
+      where: {
+        id: accountId,
+        workspaceId,
+        deletedAt: null,
+        issuedLoansReceivable: { none: {} },
+      },
       select: accountSelect,
     });
   }
@@ -59,7 +67,12 @@ export class AccountsRepository {
       this.database.$transaction(
         async (tx) => {
           const current = await tx.financialAccount.findFirst({
-            where: { id: accountId, workspaceId, deletedAt: null },
+            where: {
+              id: accountId,
+              workspaceId,
+              deletedAt: null,
+              issuedLoansReceivable: { none: {} },
+            },
             select: accountSelect,
           });
           if (!current) return null;
@@ -100,7 +113,12 @@ export class AccountsRepository {
       this.database.$transaction(
         async (tx) => {
           const current = await tx.financialAccount.findFirst({
-            where: { id: accountId, workspaceId, deletedAt: null },
+            where: {
+              id: accountId,
+              workspaceId,
+              deletedAt: null,
+              issuedLoansReceivable: { none: {} },
+            },
             select: { id: true, name: true },
           });
           if (!current) return null;

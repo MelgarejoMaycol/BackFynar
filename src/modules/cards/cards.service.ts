@@ -152,6 +152,7 @@ export class CardsService {
             nature: "ASSET",
             isActive: true,
             deletedAt: null,
+            issuedLoansReceivable: { none: {} },
           },
         }),
       ]);
@@ -808,6 +809,7 @@ export class CardsService {
             nature: "ASSET",
             isActive: true,
             deletedAt: null,
+            issuedLoansReceivable: { none: {} },
           },
         }),
         statement = statementId

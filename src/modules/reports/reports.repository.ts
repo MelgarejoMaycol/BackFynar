@@ -29,7 +29,10 @@ const filters = (workspaceId: string, start: Date, end: Date, q: CommonReportQue
 export class ReportsRepository {
   constructor(private readonly db: PrismaClient = prisma) {}
   validateAccount(workspaceId: string, id: string) {
-    return this.db.financialAccount.findFirst({ where: { id, workspaceId }, select: { id: true } });
+    return this.db.financialAccount.findFirst({
+      where: { id, workspaceId, issuedLoansReceivable: { none: {} } },
+      select: { id: true },
+    });
   }
   validateCategory(workspaceId: string, id: string) {
     return this.db.category.findFirst({
@@ -57,6 +60,7 @@ export class ReportsRepository {
   async accounts(workspaceId: string, q: AccountBalancesReportQuery) {
     const where: Prisma.FinancialAccountWhereInput = {
       workspaceId,
+      issuedLoansReceivable: { none: {} },
       ...(q.includeArchived === "false" ? { isActive: true, deletedAt: null } : {}),
       ...(q.currency ? { currency: q.currency } : {}),
       ...(q.nature ? { nature: q.nature } : {}),
@@ -92,7 +96,17 @@ export class ReportsRepository {
           accountCount: number;
         }[]
       >(
-        Prisma.sql`SELECT currency,COALESCE(SUM(current_balance) FILTER(WHERE nature='ASSET'),0)::numeric AS "assetBalance",COALESCE(SUM(ABS(current_balance)) FILTER(WHERE nature='LIABILITY'),0)::numeric AS "liabilityBalance",COALESCE(SUM(CASE WHEN include_in_net_worth AND nature='ASSET' THEN current_balance WHEN include_in_net_worth AND nature='LIABILITY' THEN -ABS(current_balance) ELSE 0 END),0)::numeric AS "netWorth",COALESCE(SUM(current_balance) FILTER(WHERE nature='ASSET'),0)::numeric AS "availableMoney",COUNT(*)::int AS "accountCount" FROM financial_accounts WHERE workspace_id::text=${workspaceId} AND is_active=true AND deleted_at IS NULL ${q.currency ? Prisma.sql`AND currency=${q.currency}` : Prisma.empty}${q.nature ? Prisma.sql` AND nature=${q.nature}::account_nature` : Prisma.empty}${q.type ? Prisma.sql` AND type=${q.type}::account_type` : Prisma.empty}${q.search ? Prisma.sql` AND name ILIKE ${`%${q.search}%`}` : Prisma.empty} GROUP BY currency ORDER BY currency`,
+        Prisma.sql`SELECT a.currency,
+          COALESCE(SUM(a.current_balance) FILTER(WHERE a.nature='ASSET'),0)::numeric AS "assetBalance",
+          COALESCE(SUM(ABS(a.current_balance)) FILTER(WHERE a.nature='LIABILITY'),0)::numeric AS "liabilityBalance",
+          COALESCE(SUM(CASE WHEN a.include_in_net_worth AND a.nature='ASSET' THEN a.current_balance WHEN a.include_in_net_worth AND a.nature='LIABILITY' THEN -ABS(a.current_balance) ELSE 0 END),0)::numeric AS "netWorth",
+          COALESCE(SUM(a.current_balance) FILTER(WHERE a.nature='ASSET' AND l.id IS NULL),0)::numeric AS "availableMoney",
+          COUNT(*) FILTER(WHERE l.id IS NULL)::int AS "accountCount"
+        FROM financial_accounts a
+        LEFT JOIN issued_loans l ON l.workspace_id=a.workspace_id AND l.receivable_account_id=a.id
+        WHERE a.workspace_id::text=${workspaceId} AND a.is_active=true AND a.deleted_at IS NULL
+          ${q.currency ? Prisma.sql`AND a.currency=${q.currency}` : Prisma.empty}${q.nature ? Prisma.sql` AND a.nature=${q.nature}::account_nature` : Prisma.empty}${q.type ? Prisma.sql` AND a.type=${q.type}::account_type` : Prisma.empty}${q.search ? Prisma.sql` AND a.name ILIKE ${`%${q.search}%`}` : Prisma.empty}
+        GROUP BY a.currency ORDER BY a.currency`,
       ),
     ]);
   }

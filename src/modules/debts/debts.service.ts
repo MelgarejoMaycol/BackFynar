@@ -118,8 +118,7 @@ export class DebtsService {
           currentBalance: D(input.currentBalance ?? input.originalAmount),
           interestRate: storedRate,
           interestRateBasis: input.interestRateBasis ?? "EFFECTIVE_MONTHLY",
-          interestType:
-            input.interestType ?? (storedRate.isZero() ? "NONE" : "FIXED"),
+          interestType: input.interestType ?? (storedRate.isZero() ? "NONE" : "FIXED"),
           termMonths: term,
           paymentFrequency,
           installmentAmount: payment,
@@ -417,6 +416,7 @@ export class DebtsService {
                 nature: "ASSET",
                 isActive: true,
                 deletedAt: null,
+                issuedLoansReceivable: { none: {} },
               },
             })
           : null;
@@ -776,6 +776,7 @@ export class DebtsService {
               nature: "ASSET",
               isActive: true,
               deletedAt: null,
+              issuedLoansReceivable: { none: {} },
             },
           })
         : null;

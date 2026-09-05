@@ -54,22 +54,73 @@ describe("semántica contable por naturaleza", () => {
   });
 
   it("incrementa un activo y reduce una tarjeta al registrar ingresos", () => {
-    expect(balanceDeltas("INCOME", new Prisma.Decimal("100000"), "ASSET").sourceDelta.toFixed(2)).toBe("100000.00");
-    expect(balanceDeltas("INCOME", new Prisma.Decimal("100000"), "LIABILITY").sourceDelta.toFixed(2)).toBe("-100000.00");
-    expect(() => assertLiabilityPaymentWithinBalance(new Prisma.Decimal("150000"), new Prisma.Decimal("100000"))).toThrow("Pago superior al saldo pendiente");
+    expect(
+      balanceDeltas("INCOME", new Prisma.Decimal("100000"), "ASSET").sourceDelta.toFixed(2),
+    ).toBe("100000.00");
+    expect(
+      balanceDeltas("INCOME", new Prisma.Decimal("100000"), "LIABILITY").sourceDelta.toFixed(2),
+    ).toBe("-100000.00");
+    expect(() =>
+      assertLiabilityPaymentWithinBalance(
+        new Prisma.Decimal("150000"),
+        new Prisma.Decimal("100000"),
+      ),
+    ).toThrow("Pago superior al saldo pendiente");
   });
 
   it("Ingreso a tarjeta crea un solo movimiento y aplica una sola reducción", async () => {
-    const card = { id: "card", workspaceId: "workspace", name: "Credi Tarjeta", type: "CREDIT_CARD", nature: "LIABILITY", currency: "COP", currentBalance: new Prisma.Decimal("300000"), creditLimit: new Prisma.Decimal("1500000"), isActive: true, deletedAt: null };
-    const transactionCreate = vi.fn().mockResolvedValue({ id: "movement", type: "INCOME", status: "CONFIRMED", amount: new Prisma.Decimal("100000"), currency: "COP", accountId: "card", destinationAccountId: null, categoryId: "category", occurredAt: new Date("2026-08-20T16:00:00Z"), description: null, notes: null, merchantName: null, metadata: null, version: 1, createdAt: new Date(), updatedAt: new Date() });
+    const card = {
+      id: "card",
+      workspaceId: "workspace",
+      name: "Credi Tarjeta",
+      type: "CREDIT_CARD",
+      nature: "LIABILITY",
+      currency: "COP",
+      currentBalance: new Prisma.Decimal("300000"),
+      creditLimit: new Prisma.Decimal("1500000"),
+      isActive: true,
+      deletedAt: null,
+    };
+    const transactionCreate = vi.fn().mockResolvedValue({
+      id: "movement",
+      type: "INCOME",
+      status: "CONFIRMED",
+      amount: new Prisma.Decimal("100000"),
+      currency: "COP",
+      accountId: "card",
+      destinationAccountId: null,
+      categoryId: "category",
+      occurredAt: new Date("2026-08-20T16:00:00Z"),
+      description: null,
+      notes: null,
+      merchantName: null,
+      metadata: null,
+      version: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
     const accountUpdate = vi.fn().mockResolvedValue({});
-    const tx = { financialAccount: { findMany: vi.fn().mockResolvedValue([card]), update: accountUpdate }, category: { findFirst: vi.fn().mockResolvedValue({ id: "category" }) }, workspace: { findUnique: vi.fn().mockResolvedValue({ timezone: "America/Bogota" }) }, transaction: { create: transactionCreate } };
+    const tx = {
+      financialAccount: { findMany: vi.fn().mockResolvedValue([card]), update: accountUpdate },
+      issuedLoan: { findFirst: vi.fn().mockResolvedValue(null) },
+      category: { findFirst: vi.fn().mockResolvedValue({ id: "category" }) },
+      workspace: { findUnique: vi.fn().mockResolvedValue({ timezone: "America/Bogota" }) },
+      transaction: { create: transactionCreate },
+    };
     const repository = { transaction: vi.fn((operation) => operation(tx)), lockAccounts: vi.fn() };
     const service = new TransactionsService(repository as never);
-    await service.income("workspace", "user", { accountId: "card", categoryId: "category", amount: "100000", occurredAt: "2026-08-20T16:00:00.000Z" });
+    await service.income("workspace", "user", {
+      accountId: "card",
+      categoryId: "category",
+      amount: "100000",
+      occurredAt: "2026-08-20T16:00:00.000Z",
+    });
     expect(transactionCreate).toHaveBeenCalledTimes(1);
     expect(accountUpdate).toHaveBeenCalledTimes(1);
-    expect(accountUpdate).toHaveBeenCalledWith({ where: { id: "card" }, data: { currentBalance: { increment: new Prisma.Decimal("-100000") } } });
+    expect(accountUpdate).toHaveBeenCalledWith({
+      where: { id: "card" },
+      data: { currentBalance: { increment: new Prisma.Decimal("-100000") } },
+    });
   });
 
   it("bloquea un pago que convertiría el pasivo en saldo a favor", () => {
