@@ -41,7 +41,12 @@ const defaultConfig: ExchangeRatesConfig = {
   staleTtlMs: env.FX_STALE_TTL_SECONDS * 1000,
 };
 
+const accountingMinorUnitOverrides: Readonly<Record<string, number>> = {
+  COP: 2,
+};
+
 const currencyMinorUnits = (currency: string) =>
+  accountingMinorUnitOverrides[currency] ??
   new Intl.NumberFormat("en", {
     style: "currency",
     currency,
@@ -191,10 +196,11 @@ export class ExchangeRatesService {
 
   async convert(from: string, to: string, amount: string) {
     const rate = await this.rate(from, to);
+    const minorUnits = currencyMinorUnits(to);
     const convertedAmount = new Prisma.Decimal(amount)
       .mul(rate.rate)
-      .toDecimalPlaces(currencyMinorUnits(to))
-      .toFixed(currencyMinorUnits(to));
+      .toDecimalPlaces(minorUnits)
+      .toFixed(minorUnits);
 
     return {
       from,
