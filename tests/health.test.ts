@@ -48,11 +48,17 @@ describe("infraestructura HTTP", () => {
     debug.mockRestore();
     info.mockRestore();
   });
-  it("responde el health check con el contrato uniforme", async () => {
+  it("responde el health check sin consultar PostgreSQL", async () => {
     const response = await request(app).get("/api/v1/health");
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ success: true, data: { apiVersion: "1.0.0" } });
-    expect(["connected", "unavailable"]).toContain(response.body.data.database);
+    expect(response.body).toMatchObject({
+      success: true,
+      data: {
+        apiVersion: "1.0.0",
+        status: "ok",
+        database: "not_checked",
+      },
+    });
   });
   it("expone los parámetros públicos derivados del SQL", async () => {
     const response = await request(app).get("/api/v1/parameters");
