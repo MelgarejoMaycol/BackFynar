@@ -1,8 +1,20 @@
+import { Prisma } from "@prisma/client";
 import { AppError } from "../../common/errors/app-error.js";
 import { accountsRepository, type AccountsRepository } from "../accounts/accounts.repository.js";
 import { budgetsService, type BudgetsService } from "../budgets/budgets.service.js";
 import { forecastsService, type ForecastsService } from "../forecasts/forecasts.service.js";
-import type { PurchaseSimulationInput } from "./simulations.schemas.js";
+import { dashboardService, type DashboardService } from "../dashboard/dashboard.service.js";
+import {
+  exchangeRatesService,
+  type ExchangeRatesService,
+} from "../exchange-rates/exchange-rates.service.js";
+import { simulateInvestment } from "./investment-simulation.engine.js";
+import type {
+  InvestmentFinancialImpactBody,
+  InvestmentScenarioBody,
+  InvestmentSimulationBody,
+  PurchaseSimulationInput,
+} from "./simulations.schemas.js";
 
 type ImpactLevel = "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
 
@@ -42,7 +54,223 @@ export class SimulationsService {
     private readonly forecasts: ForecastsService = forecastsService,
     private readonly accounts: AccountsRepository = accountsRepository,
     private readonly budgets: BudgetsService = budgetsService,
+    private readonly dashboard: DashboardService = dashboardService,
+    private readonly exchangeRates: ExchangeRatesService = exchangeRatesService,
   ) {}
+
+
+  investmentOptions(baseCurrency: string) {
+    const currencies = this.exchangeRates.currencies();
+    return {
+      currencies: currencies.currencies,
+      defaultCurrency: currencies.currencies.some((item) => item.code === baseCurrency)
+        ? baseCurrency
+        : currencies.defaultBase,
+      contributionFrequencies: [
+        { value: "NONE", label: "Sin aportes" },
+        { value: "MONTHLY", label: "Mensual" },
+        { value: "QUARTERLY", label: "Trimestral" },
+        { value: "YEARLY", label: "Anual" },
+      ],
+      limits: { minYears: 1, maxYears: 50 },
+      defaults: {
+        years: 10,
+        annualReturn: "0.08",
+        annualFee: "0.00",
+        inflationRate: "0.04",
+        scenarioSpread: "0.04",
+      },
+    };
+  }
+
+  investment(input: InvestmentSimulationBody) {
+    return simulateInvestment({
+      ...input,
+      recurringContribution: input.recurringContribution ?? "0",
+      contributionFrequency: input.contributionFrequency ?? "MONTHLY",
+      annualFee: input.annualFee ?? "0",
+      inflationRate: input.inflationRate ?? "0",
+    });
+  }
+
+  investmentScenarios(input: InvestmentScenarioBody) {
+    const base = new Prisma.Decimal(input.baseAnnualReturn);
+    const spread = new Prisma.Decimal(input.spread ?? "0.04");
+    const floor = new Prisma.Decimal("-0.99");
+    const conservativeRate = Prisma.Decimal.max(floor, base.minus(spread));
+    const optimisticRate = base.plus(spread);
+    const common = {
+      currency: input.currency,
+      initialAmount: input.initialAmount,
+      recurringContribution: input.recurringContribution ?? "0",
+      contributionFrequency: input.contributionFrequency ?? "MONTHLY",
+      years: input.years,
+      annualFee: input.annualFee ?? "0",
+      inflationRate: input.inflationRate ?? "0",
+    };
+
+    const summarize = (label: "CONSERVATIVE" | "BASE" | "OPTIMISTIC", annualReturn: Prisma.Decimal) => {
+      const result = simulateInvestment({
+        ...common,
+        annualReturn: annualReturn.toString(),
+      });
+      return {
+        label,
+        annualReturn: result.annualReturn,
+        estimatedFinalValue: result.estimatedFinalValue,
+        estimatedProfit: result.estimatedProfit,
+        inflationAdjustedValue: result.inflationAdjustedValue,
+        totalReturnPercentage: result.totalReturnPercentage,
+      };
+    };
+
+    return {
+      currency: input.currency,
+      spread: spread.toDecimalPlaces(8).toFixed(8),
+      scenarios: [
+        summarize("CONSERVATIVE", conservativeRate),
+        summarize("BASE", base),
+        summarize("OPTIMISTIC", optimisticRate),
+      ],
+      disclaimer:
+        "Los escenarios son estimaciones matemáticas basadas en tasas supuestas y no garantizan rendimientos futuros.",
+    };
+  }
+
+  async investmentFinancialImpact(
+    workspaceId: string,
+    baseCurrency: string,
+    timezone: string,
+    userId: string,
+    input: InvestmentFinancialImpactBody,
+    now = new Date(),
+  ) {
+    const toBase = async (amount: string) => {
+      if (input.currency === baseCurrency) {
+        return {
+          originalAmount: new Prisma.Decimal(amount).toFixed(2),
+          convertedAmount: new Prisma.Decimal(amount).toFixed(2),
+          rate: "1",
+          date: now.toISOString().slice(0, 10),
+        };
+      }
+      const converted = await this.exchangeRates.convert(input.currency, baseCurrency, amount);
+      return {
+        originalAmount: new Prisma.Decimal(amount).toFixed(2),
+        convertedAmount: converted.convertedAmount,
+        rate: converted.rate,
+        date: converted.date,
+      };
+    };
+
+    const [initialInBase, recurringInBase, dashboard] = await Promise.all([
+      toBase(input.initialAmount),
+      toBase(input.recurringContribution ?? "0"),
+      this.dashboard.get(
+        workspaceId,
+        baseCurrency,
+        timezone,
+        { period: "CURRENT_MONTH", recentLimit: 1 },
+        now,
+        userId,
+      ),
+    ]);
+
+    const summary =
+      dashboard.summariesByCurrency.find((item) => item.currency === baseCurrency) ??
+      dashboard.summariesByCurrency[0];
+
+    if (!summary) {
+      throw new AppError("No hay información financiera para comparar la inversión", {
+        status: 409,
+        code: "INVESTMENT_IMPACT_UNAVAILABLE",
+        publicMessage: "Aún no hay suficiente información financiera para hacer la comparación.",
+      });
+    }
+
+    const available = new Prisma.Decimal(summary.availableMoney);
+    const initial = new Prisma.Decimal(initialInBase.convertedAmount);
+    const recurring = new Prisma.Decimal(recurringInBase.convertedAmount);
+    const income = new Prisma.Decimal(summary.totalIncome);
+    const expenses = new Prisma.Decimal(summary.totalExpenses);
+    const commitments = new Prisma.Decimal(summary.scheduledPayments);
+    const netCashFlow = income.minus(expenses);
+    const remaining = available.minus(initial);
+    const liquidityUsed = available.gt(0) ? initial.div(available).mul(100) : new Prisma.Decimal(100);
+    const positiveCashFlow = Prisma.Decimal.max(0, netCashFlow);
+    const recurringShare = positiveCashFlow.gt(0)
+      ? recurring.div(positiveCashFlow).mul(100)
+      : recurring.gt(0)
+        ? new Prisma.Decimal(100)
+        : new Prisma.Decimal(0);
+
+    const level: ImpactLevel =
+      remaining.lt(0)
+        ? "CRITICAL"
+        : liquidityUsed.gte(80) || (recurring.gt(0) && recurring.gte(positiveCashFlow) && positiveCashFlow.gt(0))
+          ? "HIGH"
+          : liquidityUsed.gte(50) || recurringShare.gte(50)
+            ? "MODERATE"
+            : "LOW";
+
+    const copy =
+      level === "CRITICAL"
+        ? {
+            headline: "La inversión supera tu disponible actual",
+            explanation:
+              "Como simulación es válida, pero si saliera hoy de tus cuentas dejaría tu disponible por debajo de cero.",
+          }
+        : level === "HIGH"
+          ? {
+              headline: "La inversión consumiría una parte alta de tu liquidez",
+              explanation:
+                "Puedes simularla libremente, pero comparada con tus finanzas actuales reduciría de forma importante tu margen.",
+            }
+          : level === "MODERATE"
+            ? {
+                headline: "La inversión tendría un impacto moderado en tu liquidez",
+                explanation:
+                  "La simulación deja margen, aunque representa una parte relevante de tu disponible o de tu flujo mensual.",
+              }
+            : {
+                headline: "La inversión tendría un impacto bajo sobre tu situación actual",
+                explanation:
+                  "Comparada con tu disponible y tu flujo del periodo, conservarías un margen amplio.",
+              };
+
+    return {
+      simulationCurrency: input.currency,
+      baseCurrency,
+      initialInvestment: {
+        original: initialInBase.originalAmount,
+        baseEquivalent: initialInBase.convertedAmount,
+      },
+      recurringContribution: {
+        original: recurringInBase.originalAmount,
+        baseEquivalent: recurringInBase.convertedAmount,
+      },
+      availableMoney: available.toFixed(2),
+      remainingAvailableMoney: remaining.toFixed(2),
+      liquidityPercentageUsed: liquidityUsed.toDecimalPlaces(2).toFixed(2),
+      currentPeriodIncome: income.toFixed(2),
+      currentPeriodExpenses: expenses.toFixed(2),
+      currentNetCashFlow: netCashFlow.toFixed(2),
+      knownCommitments: commitments.toFixed(2),
+      recurringContributionShareOfPositiveCashFlow: recurringShare.toDecimalPlaces(2).toFixed(2),
+      conversion:
+        input.currency === baseCurrency
+          ? null
+          : {
+              from: input.currency,
+              to: baseCurrency,
+              rate: initialInBase.rate,
+              date: initialInBase.date,
+            },
+      impact: { level, ...copy },
+      disclaimer:
+        "Esta comparación no reserva dinero ni modifica saldos. Solo contrasta la simulación con la situación financiera actual de Fynar.",
+    };
+  }
 
   async purchase(workspaceId: string, baseCurrency: string, timezone: string, userId: string, input: PurchaseSimulationInput, now = new Date()) {
     const forecast = await this.forecasts.monthEnd(workspaceId, baseCurrency, timezone, userId, now);
