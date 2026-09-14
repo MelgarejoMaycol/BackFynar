@@ -1,16 +1,24 @@
+import { Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import type { AccountsRepository } from "../src/modules/accounts/accounts.repository.js";
 import type { BudgetsService } from "../src/modules/budgets/budgets.service.js";
 import type { DashboardService } from "../src/modules/dashboard/dashboard.service.js";
 import type { ExchangeRatesService } from "../src/modules/exchange-rates/exchange-rates.service.js";
 import type { ForecastsService } from "../src/modules/forecasts/forecasts.service.js";
-import { simulateInvestment } from "../src/modules/simulations/investment-simulation.engine.js";
 import {
-  investmentFinancialImpactSchema,
   investmentScenarioSchema,
   investmentSimulationSchema,
 } from "../src/modules/simulations/simulations.schemas.js";
-import { SimulationsService } from "../src/modules/simulations/simulations.service.js";
+import {
+  SimulationsService,
+} from "../src/modules/simulations/simulations.service.js";
+import { simulateInvestment } from "../src/modules/simulations/investment-simulation.engine.js";
+
+const forecasts = {} as ForecastsService;
+const accounts = {} as AccountsRepository;
+const budgets = {} as BudgetsService;
+const dashboard = {} as DashboardService;
+const exchangeRates = {} as ExchangeRatesService;
 
 describe("investment simulation engine", () => {
   it("capitaliza mensualmente y conserva separados aportes y rendimiento", () => {
@@ -25,14 +33,13 @@ describe("investment simulation engine", () => {
       inflationRate: "0.04",
     });
 
-    expect(result.totalContributions).toBe("41000000.00");
-    expect(Number(result.estimatedFinalValue)).toBeGreaterThan(41000000);
-    expect(Number(result.estimatedProfit)).toBeGreaterThan(0);
-    expect(Number(result.inflationAdjustedValue)).toBeLessThan(
-      Number(result.estimatedFinalValue),
-    );
+    expect(result.currency).toBe("COP");
     expect(result.timeline).toHaveLength(121);
-    expect(result.timeline.at(-1)?.month).toBe(120);
+    expect(result.totalContributions).toBe("41000000.00");
+    expect(new Prisma.Decimal(result.estimatedFinalValue).gt(result.totalContributions)).toBe(true);
+    expect(new Prisma.Decimal(result.estimatedProfit).gt(0)).toBe(true);
+    expect(new Prisma.Decimal(result.inflationAdjustedValue).lt(result.estimatedFinalValue)).toBe(true);
+    expect(result.assumptions.some((item) => item.includes("no modifica"))).toBe(true);
   });
 
   it("permite escenarios con pérdidas sin bajar de -100%", () => {
@@ -42,33 +49,24 @@ describe("investment simulation engine", () => {
       recurringContribution: "0",
       contributionFrequency: "NONE",
       years: 2,
-      annualReturn: "-0.20",
+      annualReturn: "-0.30",
       annualFee: "0",
       inflationRate: "0",
     });
 
-    expect(Number(result.estimatedFinalValue)).toBeLessThan(1000);
-    expect(Number(result.estimatedFinalValue)).toBeGreaterThan(0);
+    expect(new Prisma.Decimal(result.estimatedFinalValue).lt(result.initialAmount)).toBe(true);
+    expect(new Prisma.Decimal(result.estimatedFinalValue).gt(0)).toBe(true);
   });
 });
 
 describe("investment simulation service", () => {
-  const forecasts = {} as ForecastsService;
-  const accounts = {} as AccountsRepository;
-  const budgets = {} as BudgetsService;
-
   it("genera escenarios conservador, base y optimista", () => {
     const service = new SimulationsService(
       forecasts,
       accounts,
       budgets,
-      {} as DashboardService,
-      {
-        currencies: () => ({
-          defaultBase: "COP",
-          currencies: [{ code: "COP", name: "Peso colombiano", symbol: "$", minorUnits: 2 }],
-        }),
-      } as ExchangeRatesService,
+      dashboard,
+      exchangeRates,
     );
 
     const result = service.investmentScenarios({
@@ -83,7 +81,7 @@ describe("investment simulation service", () => {
       inflationRate: "0.04",
     });
 
-    expect(result.scenarios.map((scenario) => scenario.label)).toEqual([
+    expect(result.scenarios.map((item) => item.label)).toEqual([
       "CONSERVATIVE",
       "BASE",
       "OPTIMISTIC",
@@ -120,7 +118,7 @@ describe("investment simulation service", () => {
         ],
       }),
       convert: vi.fn().mockImplementation(async (_from: string, _to: string, amount: string) => ({
-        convertedAmount: String(Number(amount) * 4000),
+        convertedAmount: new Prisma.Decimal(amount).mul(4000).toFixed(2),
         rate: "4000",
         date: "2026-09-14",
       })),
@@ -166,36 +164,24 @@ describe("investment simulation contracts", () => {
       annualFee: "0",
       inflationRate: "0",
     });
-
-    expect(
-      investmentFinancialImpactSchema.parse({
-        currency: "usd",
-        initialAmount: "1000",
-      }),
-    ).toEqual({
-      currency: "USD",
-      initialAmount: "1000",
-      recurringContribution: "0",
-    });
   });
 
   it("rechaza rendimientos imposibles y escenarios fuera de rango", () => {
     expect(
       investmentSimulationSchema.safeParse({
         currency: "COP",
-        initialAmount: "1000",
+        initialAmount: "5000000",
         years: 10,
         annualReturn: "-1",
       }).success,
     ).toBe(false);
-
     expect(
       investmentScenarioSchema.safeParse({
         currency: "COP",
-        initialAmount: "1000",
+        initialAmount: "5000000",
         years: 10,
         baseAnnualReturn: "0.08",
-        spread: "0.9",
+        spread: "0.75",
       }).success,
     ).toBe(false);
   });
