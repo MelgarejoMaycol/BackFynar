@@ -193,7 +193,7 @@ export class ExchangeRatesService {
     const rate = await this.rate(from, to);
     const convertedAmount = new Prisma.Decimal(amount)
       .mul(rate.rate)
-      .toDecimalPlaces(currencyMinorUnits(to), Prisma.Decimal.ROUND_HALF_UP)
+      .toDecimalPlaces(currencyMinorUnits(to))
       .toFixed(currencyMinorUnits(to));
 
     return {
