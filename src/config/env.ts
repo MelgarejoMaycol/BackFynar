@@ -18,6 +18,18 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   API_PREFIX: z.string().startsWith("/").default("/api/v1"),
   API_VERSION: z.string().default("1.0.0"),
+  FX_PROVIDER: z.enum(["frankfurter"]).default("frankfurter"),
+  FX_API_BASE_URL: z.string().url().default("https://api.frankfurter.dev/v2"),
+  FX_DEFAULT_BASE_CURRENCY: z
+    .string()
+    .regex(/^[A-Z]{3}$/)
+    .default("COP"),
+  FX_DEFAULT_CURRENCIES: z
+    .string()
+    .default("USD,EUR,GBP,CAD,MXN,BRL,JPY,CHF"),
+  FX_CACHE_TTL_SECONDS: z.coerce.number().int().min(60).max(86400).default(21600),
+  FX_STALE_TTL_SECONDS: z.coerce.number().int().min(300).max(604800).default(86400),
+  FX_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(5000),
   DATABASE_URL: z.string().min(1).optional(),
   DATABASE_HEALTH_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
   ALLOW_DEGRADED_START: z

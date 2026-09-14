@@ -4,6 +4,7 @@ import parametersRoutes from "../modules/parameters/parameters.routes.js";
 import authRoutes from "../modules/auth/auth.routes.js";
 import usersRoutes from "../modules/users/users.routes.js";
 import workspacesRoutes from "../modules/workspaces/workspaces.routes.js";
+import exchangeRatesRoutes from "../modules/exchange-rates/exchange-rates.routes.js";
 
 const router = Router();
 
@@ -18,6 +19,7 @@ router.use("/health", healthRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", usersRoutes);
 router.use("/workspaces", workspacesRoutes);
+router.use("/exchange-rates", exchangeRatesRoutes);
 router.use(parametersRoutes);
 
 export default router;
