@@ -42,33 +42,48 @@ export const investmentPlanFrequencySchema = z.enum([
   "YEARLY",
 ]);
 
-export const createInvestmentPlanSchema = z
-  .object({
-    name: z.string().trim().min(2).max(140),
-    description: z.string().trim().max(1000).nullish(),
-    currency,
-    plannedInitialAmount: moneyString("Monto inicial"),
-    recurringContribution: moneyString("Aporte periódico", true).default("0"),
-    contributionFrequency: investmentPlanFrequencySchema.default("MONTHLY"),
-    horizonYears: z.coerce.number().int().min(1).max(50),
-    annualReturn: rateString("Rentabilidad anual", -1, 3, false),
-    annualFee: rateString("Comisión anual", 0, 0.99999999).default("0"),
-    inflationRate: rateString("Inflación", 0, 1).default("0"),
-    includeInNetWorth: z.boolean().default(true),
-    notes: z.string().trim().max(2000).nullish(),
-  })
-  .superRefine((value, context) => {
-    if (value.contributionFrequency === "NONE" && Number(value.recurringContribution) !== 0) {
-      context.addIssue({
-        code: "custom",
-        path: ["recurringContribution"],
-        message: "Usa un aporte de 0 cuando el plan no tiene aportes periódicos",
-      });
-    }
-  });
+const investmentPlanCoreSchema = z.object({
+  name: z.string().trim().min(2).max(140),
+  description: z.string().trim().max(1000).nullish(),
+  currency,
+  plannedInitialAmount: moneyString("Monto inicial"),
+  recurringContribution: moneyString("Aporte periódico", true).default("0"),
+  contributionFrequency: investmentPlanFrequencySchema.default("MONTHLY"),
+  horizonYears: z.coerce.number().int().min(1).max(50),
+  annualReturn: rateString("Rentabilidad anual", -1, 3, false),
+  annualFee: rateString("Comisión anual", 0, 0.99999999).default("0"),
+  inflationRate: rateString("Inflación", 0, 1).default("0"),
+  includeInNetWorth: z.boolean().default(true),
+  notes: z.string().trim().max(2000).nullish(),
+});
 
-export const updateInvestmentPlanSchema = createInvestmentPlanSchema
+const validateFrequencyContribution = (
+  value: {
+    contributionFrequency?: z.infer<typeof investmentPlanFrequencySchema>;
+    recurringContribution?: string;
+  },
+  context: z.RefinementCtx,
+) => {
+  if (
+    value.contributionFrequency === "NONE" &&
+    value.recurringContribution !== undefined &&
+    Number(value.recurringContribution) !== 0
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["recurringContribution"],
+      message: "Usa un aporte de 0 cuando el plan no tiene aportes periódicos",
+    });
+  }
+};
+
+export const createInvestmentPlanSchema = investmentPlanCoreSchema.superRefine(
+  validateFrequencyContribution,
+);
+
+export const updateInvestmentPlanSchema = investmentPlanCoreSchema
   .partial()
+  .superRefine(validateFrequencyContribution)
   .refine((value) => Object.keys(value).length > 0, "No hay cambios para guardar");
 
 export const startInvestmentPlanSchema = z
