@@ -39,6 +39,43 @@ jobs:
           echo "El backend desplegado no quedó saludable a tiempo"
           exit 1
 
+      - name: Wait for exchange rates and real conversion
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            currencies_status=$(curl --silent --show-error --max-time 30 \
+              -o currencies.json -w '%{http_code}' \
+              "$BASE_URL/api/v1/exchange-rates/currencies" || true)
+            convert_status=$(curl --silent --show-error --max-time 30 \
+              -o conversion.json -w '%{http_code}' \
+              "$BASE_URL/api/v1/exchange-rates/convert?from=COP&to=USD&amount=1000000" || true)
+            if [ "$currencies_status" = "200" ] && [ "$convert_status" = "200" ]; then
+              if node - <<'NODE'
+          const fs = require('node:fs');
+          const currencies = JSON.parse(fs.readFileSync('currencies.json', 'utf8'));
+          const conversion = JSON.parse(fs.readFileSync('conversion.json', 'utf8'));
+          const codes = currencies?.data?.currencies?.map((item) => item.code) ?? [];
+          if (!currencies?.success || !codes.includes('COP') || !codes.includes('USD')) process.exit(1);
+          if (!conversion?.success) process.exit(1);
+          if (conversion?.data?.from !== 'COP' || conversion?.data?.to !== 'USD') process.exit(1);
+          if (!(Number(conversion?.data?.rate) > 0)) process.exit(1);
+          if (!(Number(conversion?.data?.convertedAmount) > 0)) process.exit(1);
+          if (conversion?.data?.provider !== 'frankfurter') process.exit(1);
+          NODE
+              then
+                echo "Divisas desplegadas: catálogo y conversión COP/USD operativos"
+                exit 0
+              fi
+            fi
+            echo "Esperando divisas ($attempt/30): currencies=$currencies_status convert=$convert_status"
+            sleep 10
+          done
+          echo "La funcionalidad de divisas no quedó disponible en producción a tiempo"
+          cat currencies.json || true
+          cat conversion.json || true
+          exit 1
+
       - name: Wait for savings goals route to be deployed and protected
         shell: bash
         run: |
