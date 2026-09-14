@@ -6,7 +6,7 @@ import {
   type ApplicationLifecycle,
 } from "../../common/lifecycle/application-lifecycle.js";
 
-export type DatabaseStatus = "connected" | "unavailable";
+export type DatabaseStatus = "connected" | "unavailable" | "not_checked";
 export type ReadinessReason =
   "APPLICATION_SHUTTING_DOWN" | "DATABASE_NOT_CONFIGURED" | "DATABASE_UNAVAILABLE";
 export interface Liveness {
@@ -73,13 +73,21 @@ export async function checkDatabase(options: ReadinessDependencies = {}): Promis
 }
 
 export const getReadiness = (): Promise<Readiness> => checkDatabase();
-export async function getHealth(): Promise<
-  Omit<Liveness, "status"> & { status: "ok" | "degraded"; database: DatabaseStatus }
-> {
-  const database = await getReadiness();
+
+/**
+ * Health liviano para monitores externos.
+ *
+ * No consulta PostgreSQL: un monitor puede mantener activo el servicio web
+ * sin impedir que Neon suspenda el compute por inactividad.
+ * Para comprobar explícitamente la base de datos se conserva /health/ready.
+ */
+export function getHealth(): Omit<Liveness, "status"> & {
+  status: "ok";
+  database: DatabaseStatus;
+} {
   return {
     ...getLiveness(),
-    status: database.ready ? "ok" : "degraded",
-    database: database.status,
+    status: "ok",
+    database: "not_checked",
   };
 }
