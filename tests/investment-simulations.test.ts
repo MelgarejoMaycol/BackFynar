@@ -9,9 +9,7 @@ import {
   investmentScenarioSchema,
   investmentSimulationSchema,
 } from "../src/modules/simulations/simulations.schemas.js";
-import {
-  SimulationsService,
-} from "../src/modules/simulations/simulations.service.js";
+import { SimulationsService } from "../src/modules/simulations/simulations.service.js";
 import { simulateInvestment } from "../src/modules/simulations/investment-simulation.engine.js";
 
 const forecasts = {} as ForecastsService;
@@ -39,7 +37,7 @@ describe("investment simulation engine", () => {
     expect(new Prisma.Decimal(result.estimatedFinalValue).gt(result.totalContributions)).toBe(true);
     expect(new Prisma.Decimal(result.estimatedProfit).gt(0)).toBe(true);
     expect(new Prisma.Decimal(result.inflationAdjustedValue).lt(result.estimatedFinalValue)).toBe(true);
-    expect(result.assumptions.some((item) => item.includes("no modifica"))).toBe(true);
+    expect(result.assumptions.some((item) => item.includes("modifica cuentas"))).toBe(true);
   });
 
   it("permite escenarios con pérdidas sin bajar de -100%", () => {
