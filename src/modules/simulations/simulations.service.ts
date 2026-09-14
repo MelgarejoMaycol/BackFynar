@@ -68,6 +68,8 @@ export class SimulationsService {
         : currencies.defaultBase,
       contributionFrequencies: [
         { value: "NONE", label: "Sin aportes" },
+        { value: "DAILY", label: "Diario" },
+        { value: "WEEKLY", label: "Semanal" },
         { value: "MONTHLY", label: "Mensual" },
         { value: "QUARTERLY", label: "Trimestral" },
         { value: "YEARLY", label: "Anual" },
@@ -191,6 +193,18 @@ export class SimulationsService {
     const available = new Prisma.Decimal(summary.availableMoney);
     const initial = new Prisma.Decimal(initialInBase.convertedAmount);
     const recurring = new Prisma.Decimal(recurringInBase.convertedAmount);
+    const recurringMonthlyEquivalent =
+      input.contributionFrequency === "DAILY"
+        ? recurring.mul(365).div(12)
+        : input.contributionFrequency === "WEEKLY"
+          ? recurring.mul(52).div(12)
+          : input.contributionFrequency === "QUARTERLY"
+            ? recurring.div(3)
+            : input.contributionFrequency === "YEARLY"
+              ? recurring.div(12)
+              : input.contributionFrequency === "NONE"
+                ? new Prisma.Decimal(0)
+                : recurring;
     const income = new Prisma.Decimal(summary.totalIncome);
     const expenses = new Prisma.Decimal(summary.totalExpenses);
     const commitments = new Prisma.Decimal(summary.scheduledPayments);
@@ -199,15 +213,18 @@ export class SimulationsService {
     const liquidityUsed = available.gt(0) ? initial.div(available).mul(100) : new Prisma.Decimal(100);
     const positiveCashFlow = Prisma.Decimal.max(0, netCashFlow);
     const recurringShare = positiveCashFlow.gt(0)
-      ? recurring.div(positiveCashFlow).mul(100)
-      : recurring.gt(0)
+      ? recurringMonthlyEquivalent.div(positiveCashFlow).mul(100)
+      : recurringMonthlyEquivalent.gt(0)
         ? new Prisma.Decimal(100)
         : new Prisma.Decimal(0);
 
     const level: ImpactLevel =
       remaining.lt(0)
         ? "CRITICAL"
-        : liquidityUsed.gte(80) || (recurring.gt(0) && recurring.gte(positiveCashFlow) && positiveCashFlow.gt(0))
+        : liquidityUsed.gte(80) ||
+            (recurringMonthlyEquivalent.gt(0) &&
+              recurringMonthlyEquivalent.gte(positiveCashFlow) &&
+              positiveCashFlow.gt(0))
           ? "HIGH"
           : liquidityUsed.gte(50) || recurringShare.gte(50)
             ? "MODERATE"
@@ -248,6 +265,8 @@ export class SimulationsService {
       recurringContribution: {
         original: recurringInBase.originalAmount,
         baseEquivalent: recurringInBase.convertedAmount,
+        frequency: input.contributionFrequency,
+        monthlyEquivalentBase: recurringMonthlyEquivalent.toFixed(2),
       },
       availableMoney: available.toFixed(2),
       remainingAvailableMoney: remaining.toFixed(2),
