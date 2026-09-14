@@ -11,6 +11,7 @@ import {
 import type { DashboardQuery } from "./dashboard.schemas.js";
 import { ValidationError } from "../../common/errors/app-error.js";
 import { liabilitiesService, type LiabilitiesService } from "../liabilities/liabilities.service.js";
+import { investmentsService, type InvestmentsService } from "../investments/investments.service.js";
 
 const zero = () => new Prisma.Decimal(0);
 const fixed = (value: Prisma.Decimal) => value.toDecimalPlaces(2).toFixed(2);
@@ -59,6 +60,7 @@ export class DashboardService {
     private readonly repository: DashboardRepository = dashboardRepository,
     private readonly budgets: BudgetsService = budgetsService,
     private readonly liabilities: LiabilitiesService = liabilitiesService,
+    private readonly investments: InvestmentsService = investmentsService,
   ) {}
   async get(
     workspaceId: string,
@@ -82,7 +84,7 @@ export class DashboardService {
     const forecastEnd = new Date(Date.UTC(forecastYear!, forecastMonth!, 0))
       .toISOString()
       .slice(0, 10);
-    const [data, budgetPage, loanCollections, scheduledItems] = await Promise.all([
+    const [data, budgetPage, loanCollections, scheduledItems, investmentValues] = await Promise.all([
       this.repository.read(workspaceId, period, query.recentLimit),
       this.budgets.list(workspaceId, timezone, {
         includeArchived: "false",
@@ -93,6 +95,7 @@ export class DashboardService {
       }),
       this.repository.loanCollections(workspaceId, forecastStart, forecastEnd),
       this.liabilities.calendarRange(workspaceId, forecastStart, forecastEnd),
+      this.investments.netWorthByCurrency(workspaceId),
     ]);
     const sourcePriority: Record<string, number> = {
       ACTUAL: 0,
@@ -124,6 +127,7 @@ export class DashboardService {
       ...data.receivables.map((account) => account.currency),
       ...loanCollections.map((item) => item.currency),
       ...scheduled.map((item) => item.currency),
+      ...investmentValues.map((item) => item.currency),
       ...current.keys(),
       ...previous.keys(),
     ]);
@@ -139,6 +143,8 @@ export class DashboardService {
       const availableMoney = totalMoney.minus(reservedForGoals);
       const receivableBalance =
         data.receivables.find((item) => item.currency === currency)?._sum.currentBalance ?? zero();
+      const investmentValue =
+        investmentValues.find((item) => item.currency === currency)?.value ?? zero();
       const netWorth = accounts
         .filter((account) => account.includeInNetWorth)
         .reduce(
@@ -148,7 +154,8 @@ export class DashboardService {
               : sum.minus(account.currentBalance.abs()),
           zero(),
         )
-        .plus(receivableBalance);
+        .plus(receivableBalance)
+        .plus(investmentValue);
       const expectedCollections =
         loanCollections.find((item) => item.currency === currency)?.amount ?? zero();
       const scheduledPayments = scheduled
@@ -167,6 +174,7 @@ export class DashboardService {
         totalExpenses: fixed(totals.expenses),
         netCashFlow: fixed(totals.income.minus(totals.expenses)),
         netWorth: fixed(netWorth),
+        investmentValue: fixed(investmentValue),
         expectedCollections: fixed(expectedCollections),
         scheduledPayments: fixed(scheduledPayments),
         projectedEndLiquidity: fixed(
