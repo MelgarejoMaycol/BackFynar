@@ -59,8 +59,8 @@ const investmentPlanCoreSchema = z.object({
 
 const validateFrequencyContribution = (
   value: {
-    contributionFrequency?: z.infer<typeof investmentPlanFrequencySchema>;
-    recurringContribution?: string;
+    contributionFrequency?: z.infer<typeof investmentPlanFrequencySchema> | undefined;
+    recurringContribution?: string | undefined;
   },
   context: z.RefinementCtx,
 ) => {
