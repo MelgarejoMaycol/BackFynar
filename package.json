@@ -13,7 +13,7 @@
     "pretypecheck": "npm run prisma:generate",
     "postinstall": "npm run build",
     "build": "npm run prisma:generate && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
-    "start": "npm run prisma:migrate:deploy && node dist/server.js",
+    "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint",
