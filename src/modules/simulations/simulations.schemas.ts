@@ -59,29 +59,40 @@ const inflationRateString = decimalString("Inflación").refine(
   "La inflación debe estar entre 0% y 100%",
 );
 
-export const investmentSimulationSchema = z
-  .object({
-    currency: z.string().trim().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()),
-    initialAmount: positiveMoneyString("Monto inicial"),
-    recurringContribution: nonNegativeMoneyString("Aporte periódico").default("0"),
-    contributionFrequency: investmentContributionFrequencySchema.default("MONTHLY"),
-    years: z.coerce.number().int().min(1).max(50),
-    annualReturn: annualReturnString,
-    annualFee: annualFeeString.default("0"),
-    inflationRate: inflationRateString.default("0"),
-  })
-  .superRefine((value, context) => {
-    if (value.contributionFrequency === "NONE" && Number(value.recurringContribution) !== 0) {
-      context.addIssue({
-        code: "custom",
-        path: ["recurringContribution"],
-        message: "Usa un aporte de 0 cuando no hay aportes periódicos",
-      });
-    }
-  });
+const investmentCoreSchema = z.object({
+  currency: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{3}$/)
+    .transform((value) => value.toUpperCase()),
+  initialAmount: positiveMoneyString("Monto inicial"),
+  recurringContribution: nonNegativeMoneyString("Aporte periódico").default("0"),
+  contributionFrequency: investmentContributionFrequencySchema.default("MONTHLY"),
+  years: z.coerce.number().int().min(1).max(50),
+  annualFee: annualFeeString.default("0"),
+  inflationRate: inflationRateString.default("0"),
+});
 
-export const investmentScenarioSchema = investmentSimulationSchema
-  .omit({ annualReturn: true })
+const validateRecurringContribution = (
+  value: { contributionFrequency: string; recurringContribution: string },
+  context: z.RefinementCtx,
+) => {
+  if (value.contributionFrequency === "NONE" && Number(value.recurringContribution) !== 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["recurringContribution"],
+      message: "Usa un aporte de 0 cuando no hay aportes periódicos",
+    });
+  }
+};
+
+export const investmentSimulationSchema = investmentCoreSchema
+  .extend({
+    annualReturn: annualReturnString,
+  })
+  .superRefine(validateRecurringContribution);
+
+export const investmentScenarioSchema = investmentCoreSchema
   .extend({
     baseAnnualReturn: annualReturnString,
     spread: z
@@ -92,7 +103,8 @@ export const investmentScenarioSchema = investmentSimulationSchema
         "La amplitud de escenarios debe estar entre 0% y 50%",
       )
       .default("0.04"),
-  });
+  })
+  .superRefine(validateRecurringContribution);
 
 export const investmentFinancialImpactSchema = z.object({
   currency: z.string().trim().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()),
