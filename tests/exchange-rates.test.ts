@@ -29,9 +29,11 @@ const row = (
 ): ExchangeRateRow => ({ base, quote, rate, date });
 
 const provider = (rate = "0.00025"): ExchangeRateProvider => ({
-  getRate: vi.fn(async (base, quote) => row(base, quote, rate)),
-  getRates: vi.fn(async (base, quotes) =>
-    quotes.map((quote) => row(base, quote, quote === "USD" ? rate : "0.00022")),
+  getRate: vi.fn(async (base: string, quote: string) => row(base, quote, rate)),
+  getRates: vi.fn(async (base: string, quotes: string[]) =>
+    quotes.map((quote: string) =>
+      row(base, quote, quote === "USD" ? rate : "0.00022"),
+    ),
   ),
   getHistory: vi.fn(
     async (
