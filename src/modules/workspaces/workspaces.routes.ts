@@ -20,6 +20,7 @@ import liabilitiesRouter from "../liabilities/liabilities.routes.js";
 import personalBalancesRouter from "../personal-balances/personal-balances.routes.js";
 import lendingRouter from "../lending/lending.routes.js";
 import goalsRouter from "../goals/goals.routes.js";
+import investmentsRouter from "../investments/investments.routes.js";
 
 const router = Router();
 router.use(authenticate);
@@ -39,6 +40,7 @@ router.use("/:workspaceId/recurring-detection", resolveWorkspaceContext, recurri
 router.use("/:workspaceId/notifications", resolveWorkspaceContext, notificationsRouter);
 router.use("/:workspaceId/cards", resolveWorkspaceContext, cardsRouter);
 router.use("/:workspaceId/goals", resolveWorkspaceContext, goalsRouter);
+router.use("/:workspaceId/investments", resolveWorkspaceContext, investmentsRouter);
 router.use("/:workspaceId/personal-balances", resolveWorkspaceContext, personalBalancesRouter);
 router.use("/:workspaceId/lending", resolveWorkspaceContext, lendingRouter);
 router.use("/:workspaceId", resolveWorkspaceContext, liabilitiesRouter);
