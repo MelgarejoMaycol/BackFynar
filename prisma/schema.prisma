@@ -327,6 +327,8 @@ model FinancialAccount {
   issuedLoansReceivable                                           IssuedLoan[]             @relation("issued_loan_receivable")
   issuedLoansSource                                               IssuedLoan[]             @relation("issued_loan_source")
   issuedLoanPaymentsReceived                                      IssuedLoanPayment[]
+  investmentContributions                                          InvestmentContribution[]
+  investmentWithdrawals                                            InvestmentWithdrawal[]
 
   @@unique([workspaceId, id])
   @@map("financial_accounts")
@@ -898,6 +900,105 @@ model TransactionSplit {
   @@map("transaction_splits")
 }
 
+
+model InvestmentPlan {
+  id                    String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId           String                            @map("workspace_id") @db.Uuid
+  name                  String                            @db.VarChar(140)
+  description           String?
+  currency              String                            @default("COP") @db.Char(3)
+  status                investment_plan_status            @default(DRAFT)
+  plannedInitialAmount  Decimal                           @map("planned_initial_amount") @db.Decimal(18, 2)
+  recurringContribution Decimal                           @default(0) @map("recurring_contribution") @db.Decimal(18, 2)
+  contributionFrequency investment_contribution_frequency @default(MONTHLY) @map("contribution_frequency")
+  horizonYears          Int                               @map("horizon_years")
+  annualReturn          Decimal                           @map("annual_return") @db.Decimal(10, 7)
+  annualFee             Decimal                           @default(0) @map("annual_fee") @db.Decimal(10, 7)
+  inflationRate         Decimal                           @default(0) @map("inflation_rate") @db.Decimal(10, 7)
+  startDate             DateTime?                         @map("start_date") @db.Date
+  includeInNetWorth     Boolean                           @default(true) @map("include_in_net_worth")
+  notes                 String?
+  createdBy             String                            @map("created_by") @db.Uuid
+  createdAt             DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  pausedAt              DateTime?                         @map("paused_at") @db.Timestamptz(6)
+  completedAt           DateTime?                         @map("completed_at") @db.Timestamptz(6)
+  archivedAt            DateTime?                         @map("archived_at") @db.Timestamptz(6)
+  workspace             Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator               User                              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  contributions         InvestmentContribution[]
+  withdrawals           InvestmentWithdrawal[]
+  valuations            InvestmentValuation[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, status, createdAt(sort: Desc)], map: "idx_investment_plans_workspace_status")
+  @@map("investment_plans")
+}
+
+model InvestmentContribution {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String           @map("workspace_id") @db.Uuid
+  planId        String           @map("plan_id") @db.Uuid
+  sourceAccountId String         @map("source_account_id") @db.Uuid
+  transactionId String           @unique @map("transaction_id") @db.Uuid
+  amount        Decimal          @db.Decimal(18, 2)
+  occurredAt    DateTime         @map("occurred_at") @db.Timestamptz(6)
+  note          String?          @db.VarChar(500)
+  createdBy     String           @map("created_by") @db.Uuid
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  plan          InvestmentPlan   @relation(fields: [workspaceId, planId], references: [workspaceId, id], onDelete: Cascade)
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceAccount FinancialAccount @relation(fields: [workspaceId, sourceAccountId], references: [workspaceId, id], onDelete: Restrict)
+  transaction   Transaction      @relation(fields: [workspaceId, transactionId], references: [workspaceId, id], onDelete: Restrict)
+  creator       User             @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, transactionId])
+  @@index([workspaceId, planId, occurredAt(sort: Desc)], map: "idx_investment_contributions_plan")
+  @@map("investment_contributions")
+}
+
+model InvestmentWithdrawal {
+  id                   String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String           @map("workspace_id") @db.Uuid
+  planId               String           @map("plan_id") @db.Uuid
+  destinationAccountId String           @map("destination_account_id") @db.Uuid
+  transactionId        String           @unique @map("transaction_id") @db.Uuid
+  amount               Decimal          @db.Decimal(18, 2)
+  occurredAt           DateTime         @map("occurred_at") @db.Timestamptz(6)
+  note                 String?          @db.VarChar(500)
+  createdBy            String           @map("created_by") @db.Uuid
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  plan                 InvestmentPlan   @relation(fields: [workspaceId, planId], references: [workspaceId, id], onDelete: Cascade)
+  workspace            Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  destinationAccount   FinancialAccount @relation(fields: [workspaceId, destinationAccountId], references: [workspaceId, id], onDelete: Restrict)
+  transaction          Transaction      @relation(fields: [workspaceId, transactionId], references: [workspaceId, id], onDelete: Restrict)
+  creator              User             @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, id])
+  @@unique([workspaceId, transactionId])
+  @@index([workspaceId, planId, occurredAt(sort: Desc)], map: "idx_investment_withdrawals_plan")
+  @@map("investment_withdrawals")
+}
+
+model InvestmentValuation {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String         @map("workspace_id") @db.Uuid
+  planId      String         @map("plan_id") @db.Uuid
+  value       Decimal        @db.Decimal(18, 2)
+  capturedAt  DateTime       @map("captured_at") @db.Timestamptz(6)
+  note        String?        @db.VarChar(500)
+  createdBy   String         @map("created_by") @db.Uuid
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  plan        InvestmentPlan @relation(fields: [workspaceId, planId], references: [workspaceId, id], onDelete: Cascade)
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator     User           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId, planId, capturedAt(sort: Desc)], map: "idx_investment_valuations_plan")
+  @@map("investment_valuations")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Transaction {
@@ -947,6 +1048,8 @@ model Transaction {
   personalBalanceEntry                                                 PersonalBalanceEntry?
   issuedLoanPrincipalPayments                                          IssuedLoanPayment[]     @relation("issued_loan_principal_transaction")
   issuedLoanInterestPayments                                           IssuedLoanPayment[]     @relation("issued_loan_interest_transaction")
+  investmentContribution                                                InvestmentContribution?
+  investmentWithdrawal                                                  InvestmentWithdrawal?
 
   @@unique([workspaceId, id])
   @@map("transactions")
@@ -1187,6 +1290,10 @@ model User {
   issuedLoans                                      IssuedLoan[]
   issuedLoanPaymentsCreated                        IssuedLoanPayment[]      @relation("issued_loan_payment_creator")
   issuedLoanPaymentsReversed                       IssuedLoanPayment[]      @relation("issued_loan_payment_reverser")
+  investmentPlans                                   InvestmentPlan[]
+  investmentContributions                           InvestmentContribution[]
+  investmentWithdrawals                             InvestmentWithdrawal[]
+  investmentValuations                              InvestmentValuation[]
 
   @@map("users")
 }
@@ -1242,6 +1349,10 @@ model Workspace {
   financialPeople       FinancialPerson[]
   personalBalances      PersonalBalance[]
   issuedLoans           IssuedLoan[]
+  investmentPlans       InvestmentPlan[]
+  investmentContributions InvestmentContribution[]
+  investmentWithdrawals InvestmentWithdrawal[]
+  investmentValuations  InvestmentValuation[]
 
   @@map("workspaces")
 }
@@ -1407,6 +1518,23 @@ enum debt_payment_frequency {
   MONTHLY
   BIMONTHLY
   SEMIANNUAL
+}
+
+enum investment_plan_status {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum investment_contribution_frequency {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
 }
 
 enum transaction_status {
