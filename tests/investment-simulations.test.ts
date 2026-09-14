@@ -162,7 +162,12 @@ describe("investment simulation service", () => {
       "COP",
       "America/Bogota",
       "user",
-      { currency: "USD", initialAmount: "1000", recurringContribution: "100" },
+      {
+        currency: "USD",
+        initialAmount: "1000",
+        recurringContribution: "100",
+        contributionFrequency: "MONTHLY",
+      },
       new Date("2026-09-14T12:00:00Z"),
     );
 
