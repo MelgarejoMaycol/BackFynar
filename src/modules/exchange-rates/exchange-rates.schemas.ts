@@ -24,16 +24,14 @@ export const ratesQuerySchema = z
   .object({
     base: currencyCodeSchema.optional(),
     quotes: quoteListSchema.optional(),
-  })
-  .strict();
+  });
 
 export const convertQuerySchema = z
   .object({
     from: currencyCodeSchema,
     to: currencyCodeSchema,
     amount: decimalAmountSchema,
-  })
-  .strict();
+  });
 
 export const historyQuerySchema = z
   .object({
@@ -43,7 +41,6 @@ export const historyQuerySchema = z
     to: isoDateSchema,
     group: z.enum(["week", "month"]).optional(),
   })
-  .strict()
   .refine((value) => value.from <= value.to, {
     message: "La fecha inicial no puede ser posterior a la fecha final",
     path: ["from"],
