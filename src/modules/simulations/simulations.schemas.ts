@@ -27,6 +27,8 @@ export type PurchaseSimulationInput = z.infer<typeof purchaseSimulationSchema>;
 
 export const investmentContributionFrequencySchema = z.enum([
   "NONE",
+  "DAILY",
+  "WEEKLY",
   "MONTHLY",
   "QUARTERLY",
   "YEARLY",
@@ -110,6 +112,7 @@ export const investmentFinancialImpactSchema = z.object({
   currency: z.string().trim().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()),
   initialAmount: positiveMoneyString("Monto inicial"),
   recurringContribution: nonNegativeMoneyString("Aporte periódico").default("0"),
+  contributionFrequency: investmentContributionFrequencySchema.default("MONTHLY"),
 });
 
 export type InvestmentSimulationBody = z.infer<typeof investmentSimulationSchema>;
