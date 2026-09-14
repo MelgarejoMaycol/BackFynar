@@ -4,6 +4,7 @@ import type { BudgetsService } from "../src/modules/budgets/budgets.service.js";
 import type { DashboardRepository } from "../src/modules/dashboard/dashboard.repository.js";
 import { DashboardService } from "../src/modules/dashboard/dashboard.service.js";
 import type { LiabilitiesService } from "../src/modules/liabilities/liabilities.service.js";
+import type { InvestmentsService } from "../src/modules/investments/investments.service.js";
 
 describe("forecast de liquidez", () => {
   it("separa liquidez, cuentas por cobrar y pagos futuros sin duplicar eventos", async () => {
@@ -67,7 +68,12 @@ describe("forecast de liquidez", () => {
         },
       ]),
     } as unknown as LiabilitiesService;
-    const service = new DashboardService(repository, budgets, liabilities);
+    const investments = {
+      netWorthByCurrency: vi
+        .fn()
+        .mockResolvedValue([{ currency: "COP", value: new Prisma.Decimal(250) }]),
+    } as unknown as InvestmentsService;
+    const service = new DashboardService(repository, budgets, liabilities, investments);
 
     const result = await service.get(
       "workspace",
@@ -81,7 +87,8 @@ describe("forecast de liquidez", () => {
       expect.objectContaining({
         currency: "COP",
         availableMoney: "1000.00",
-        netWorth: "1500.00",
+        netWorth: "1750.00",
+        investmentValue: "250.00",
         expectedCollections: "200.00",
         scheduledPayments: "150.00",
         projectedEndLiquidity: "1050.00",
