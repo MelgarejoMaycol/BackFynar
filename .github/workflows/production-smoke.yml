@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      BASE_URL: https://backfynar.onrender.com
+      BASE_URL: https://backfynar-z8mf.onrender.com
     steps:
       - name: Wait for deployed API and health
         shell: bash
