@@ -19,7 +19,7 @@ const dashboard = {} as DashboardService;
 const exchangeRates = {} as ExchangeRatesService;
 
 describe("investment simulation engine", () => {
-  it("capitaliza mensualmente y conserva separados aportes y rendimiento", () => {
+  it("modela aportes periódicos y conserva separados aportes y rendimiento", () => {
     const result = simulateInvestment({
       currency: "COP",
       initialAmount: "5000000",
@@ -38,6 +38,34 @@ describe("investment simulation engine", () => {
     expect(new Prisma.Decimal(result.estimatedProfit).gt(0)).toBe(true);
     expect(new Prisma.Decimal(result.inflationAdjustedValue).lt(result.estimatedFinalValue)).toBe(true);
     expect(result.assumptions.some((item) => item.includes("modifica cuentas"))).toBe(true);
+  });
+
+  it("soporta aportes diarios y semanales con el total anual esperado", () => {
+    const daily = simulateInvestment({
+      currency: "COP",
+      initialAmount: "1000",
+      recurringContribution: "10",
+      contributionFrequency: "DAILY",
+      years: 1,
+      annualReturn: "0",
+      annualFee: "0",
+      inflationRate: "0",
+    });
+    const weekly = simulateInvestment({
+      currency: "COP",
+      initialAmount: "1000",
+      recurringContribution: "100",
+      contributionFrequency: "WEEKLY",
+      years: 1,
+      annualReturn: "0",
+      annualFee: "0",
+      inflationRate: "0",
+    });
+
+    expect(daily.totalContributions).toBe("4650.00");
+    expect(weekly.totalContributions).toBe("6200.00");
+    expect(daily.timeline).toHaveLength(13);
+    expect(weekly.timeline).toHaveLength(13);
   });
 
   it("permite escenarios con pérdidas sin bajar de -100%", () => {
@@ -139,6 +167,7 @@ describe("investment simulation service", () => {
     );
 
     expect(result.initialInvestment.baseEquivalent).toBe("4000000.00");
+    expect(result.recurringContribution.monthlyEquivalentBase).toBe("400000.00");
     expect(result.remainingAvailableMoney).toBe("4000000.00");
     expect(result.liquidityPercentageUsed).toBe("50.00");
     expect(result.impact.level).toBe("MODERATE");
@@ -162,6 +191,29 @@ describe("investment simulation contracts", () => {
       annualFee: "0",
       inflationRate: "0",
     });
+  });
+
+  it("acepta frecuencias diaria y semanal", () => {
+    expect(
+      investmentSimulationSchema.parse({
+        currency: "COP",
+        initialAmount: "100000",
+        recurringContribution: "5000",
+        contributionFrequency: "DAILY",
+        years: 1,
+        annualReturn: "0.08",
+      }).contributionFrequency,
+    ).toBe("DAILY");
+    expect(
+      investmentSimulationSchema.parse({
+        currency: "COP",
+        initialAmount: "100000",
+        recurringContribution: "5000",
+        contributionFrequency: "WEEKLY",
+        years: 1,
+        annualReturn: "0.08",
+      }).contributionFrequency,
+    ).toBe("WEEKLY");
   });
 
   it("rechaza rendimientos imposibles y escenarios fuera de rango", () => {
