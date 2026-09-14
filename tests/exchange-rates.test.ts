@@ -117,6 +117,17 @@ describe("exchange rates query contracts", () => {
     ).toBe(false);
   });
 
+  it("ignora parámetros auxiliares añadidos por proxies", () => {
+    expect(
+      convertQuerySchema.parse({
+        from: "COP",
+        to: "USD",
+        amount: "1000000",
+        path: "exchange-rates/convert",
+      }),
+    ).toEqual({ from: "COP", to: "USD", amount: "1000000" });
+  });
+
   it("rechaza rangos históricos invertidos", () => {
     expect(
       historyQuerySchema.safeParse({
