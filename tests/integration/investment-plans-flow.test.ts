@@ -153,6 +153,81 @@ describe.sequential("planes de inversión · aportes voluntarios", () => {
     });
   });
 
+  it("permite corregir y eliminar un aporte manteniendo movimiento y saldo sincronizados", async () => {
+    const created = await request(app)
+      .post(`${investmentsBase()}/${planId}/contributions`)
+      .set(auth(actor.access))
+      .send({
+        sourceAccountId: accountId,
+        amount: "100000.00",
+        occurredAt: "2026-09-14T15:00:00-05:00",
+        note: "Aporte temporal",
+      });
+
+    expect(created.status).toBe(201);
+    const contribution = created.body.data.recentContributions.find(
+      (item: { note: string | null }) => item.note === "Aporte temporal",
+    );
+    expect(contribution.transactionId).toBeTypeOf("string");
+
+    const updated = await request(app)
+      .patch(
+        `${investmentsBase()}/${planId}/contributions/${contribution.id}`,
+      )
+      .set(auth(actor.access))
+      .send({
+        amount: "120000.00",
+        occurredAt: "2026-09-15T09:30:00-05:00",
+        note: "Aporte corregido",
+      });
+
+    expect(updated.status).toBe(200);
+    expect(
+      updated.body.data.recentContributions.find(
+        (item: { id: string }) => item.id === contribution.id,
+      ),
+    ).toMatchObject({
+      amount: "120000.00",
+      note: "Aporte corregido",
+    });
+
+    const transaction = await prisma.transaction.findUniqueOrThrow({
+      where: { id: contribution.transactionId },
+    });
+    expect(transaction.amount.toFixed(2)).toBe("120000.00");
+    expect(transaction.notes).toBe("Aporte corregido");
+    expect(transaction.occurredAt.toISOString()).toBe(
+      "2026-09-15T14:30:00.000Z",
+    );
+
+    const afterUpdate = await prisma.financialAccount.findUniqueOrThrow({
+      where: { id: accountId },
+    });
+    expect(afterUpdate.currentBalance.toFixed(2)).toBe("1380000.00");
+
+    const removed = await request(app)
+      .delete(
+        `${investmentsBase()}/${planId}/contributions/${contribution.id}`,
+      )
+      .set(auth(actor.access));
+
+    expect(removed.status).toBe(200);
+    expect(
+      removed.body.data.recentContributions.some(
+        (item: { id: string }) => item.id === contribution.id,
+      ),
+    ).toBe(false);
+
+    const afterDelete = await prisma.financialAccount.findUniqueOrThrow({
+      where: { id: accountId },
+    });
+    expect(afterDelete.currentBalance.toFixed(2)).toBe("1500000.00");
+    const cancelled = await prisma.transaction.findUniqueOrThrow({
+      where: { id: contribution.transactionId },
+    });
+    expect(cancelled.status).toBe("CANCELLED");
+  });
+
   it("trata la frecuencia como ritmo sugerido, no como pago pendiente", async () => {
     const detail = await request(app)
       .get(`${investmentsBase()}/${planId}`)
@@ -226,6 +301,95 @@ describe.sequential("planes de inversión · aportes voluntarios", () => {
     expect(cop.availableMoney).toBe("1700000.00");
     expect(cop.investmentValue).toBe("350000.00");
     expect(cop.netWorth).toBe("2050000.00");
+  });
+
+  it("permite corregir y eliminar retiros y valoraciones", async () => {
+    const withdrawalCreated = await request(app)
+      .post(`${investmentsBase()}/${planId}/withdrawals`)
+      .set(auth(actor.access))
+      .send({
+        destinationAccountId: accountId,
+        amount: "50000.00",
+        occurredAt: "2026-09-16T15:00:00-05:00",
+        note: "Retiro temporal",
+      });
+
+    expect(withdrawalCreated.status).toBe(201);
+    const withdrawal = withdrawalCreated.body.data.recentWithdrawals.find(
+      (item: { note: string | null }) => item.note === "Retiro temporal",
+    );
+
+    const withdrawalUpdated = await request(app)
+      .patch(
+        `${investmentsBase()}/${planId}/withdrawals/${withdrawal.id}`,
+      )
+      .set(auth(actor.access))
+      .send({
+        amount: "60000.00",
+        occurredAt: "2026-09-17T10:00:00-05:00",
+        note: "Retiro corregido",
+      });
+    expect(withdrawalUpdated.status).toBe(200);
+    expect(
+      withdrawalUpdated.body.data.recentWithdrawals.find(
+        (item: { id: string }) => item.id === withdrawal.id,
+      ),
+    ).toMatchObject({ amount: "60000.00", note: "Retiro corregido" });
+
+    const linkedWithdrawal = await prisma.transaction.findUniqueOrThrow({
+      where: { id: withdrawal.transactionId },
+    });
+    expect(linkedWithdrawal.amount.toFixed(2)).toBe("60000.00");
+
+    const withdrawalRemoved = await request(app)
+      .delete(
+        `${investmentsBase()}/${planId}/withdrawals/${withdrawal.id}`,
+      )
+      .set(auth(actor.access));
+    expect(withdrawalRemoved.status).toBe(200);
+
+    const afterWithdrawalDelete = await prisma.financialAccount.findUniqueOrThrow({
+      where: { id: accountId },
+    });
+    expect(afterWithdrawalDelete.currentBalance.toFixed(2)).toBe("1700000.00");
+
+    const valuationCreated = await request(app)
+      .post(`${investmentsBase()}/${planId}/valuations`)
+      .set(auth(actor.access))
+      .send({
+        value: "360000.00",
+        capturedAt: "2026-09-17T11:00:00-05:00",
+        note: "Valor temporal",
+      });
+    expect(valuationCreated.status).toBe(201);
+    const valuation = valuationCreated.body.data.recentValuations.find(
+      (item: { note: string | null }) => item.note === "Valor temporal",
+    );
+
+    const valuationUpdated = await request(app)
+      .patch(`${investmentsBase()}/${planId}/valuations/${valuation.id}`)
+      .set(auth(actor.access))
+      .send({
+        value: "365000.00",
+        capturedAt: "2026-09-17T12:00:00-05:00",
+        note: "Valor corregido",
+      });
+    expect(valuationUpdated.status).toBe(200);
+    expect(
+      valuationUpdated.body.data.recentValuations.find(
+        (item: { id: string }) => item.id === valuation.id,
+      ),
+    ).toMatchObject({ value: "365000.00", note: "Valor corregido" });
+
+    const valuationRemoved = await request(app)
+      .delete(`${investmentsBase()}/${planId}/valuations/${valuation.id}`)
+      .set(auth(actor.access));
+    expect(valuationRemoved.status).toBe(200);
+    expect(
+      valuationRemoved.body.data.recentValuations.some(
+        (item: { id: string }) => item.id === valuation.id,
+      ),
+    ).toBe(false);
   });
 
   it("pausar no crea deuda y todavía permite aportar si el usuario quiere", async () => {
