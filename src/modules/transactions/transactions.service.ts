@@ -431,6 +431,17 @@ export class TransactionsService {
           "Movimiento protegido por préstamo",
           "Este movimiento pertenece a un préstamo. Edítalo o reviértelo desde el detalle del préstamo para conservar cuotas y saldos.",
         );
+      if (
+        current.type === "INVESTMENT" &&
+        current.metadata &&
+        typeof current.metadata === "object" &&
+        !Array.isArray(current.metadata) &&
+        current.metadata["investment"] === true
+      )
+        throw new ConflictError(
+          "Movimiento vinculado a una inversión",
+          "Edita el aporte o retiro desde el detalle de la inversión para mantener sincronizados el movimiento, la cuenta y el valor invertido.",
+        );
       assertSupportedFinancialType(current.type);
       if (current.version !== input.version) throw versionConflict();
       if (current.status !== "CONFIRMED")
@@ -537,6 +548,17 @@ export class TransactionsService {
         throw new ConflictError(
           "Movimiento protegido por préstamo",
           "Este movimiento pertenece a un préstamo. Reviértelo desde el detalle del préstamo para conservar cuotas y saldos.",
+        );
+      if (
+        current.type === "INVESTMENT" &&
+        current.metadata &&
+        typeof current.metadata === "object" &&
+        !Array.isArray(current.metadata) &&
+        current.metadata["investment"] === true
+      )
+        throw new ConflictError(
+          "Movimiento vinculado a una inversión",
+          "Elimina el aporte o retiro desde el detalle de la inversión para revertir correctamente la cuenta y el seguimiento.",
         );
       assertSupportedFinancialType(current.type);
       if (current.status === "CANCELLED") return { mode: "CANCELLED" as const };
