@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const investmentPlanIdSchema = z.string().uuid();
+export const investmentRecordIdSchema = z.string().uuid();
 
 const currency = z
   .string()
@@ -110,6 +111,14 @@ export const investmentWithdrawalSchema = z
   })
   .strict();
 
+export const updateInvestmentContributionSchema = investmentContributionSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, "No hay cambios para guardar");
+
+export const updateInvestmentWithdrawalSchema = investmentWithdrawalSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, "No hay cambios para guardar");
+
 export const investmentValuationSchema = z
   .object({
     value: moneyString("Valor actual", true),
@@ -117,6 +126,10 @@ export const investmentValuationSchema = z
     note: z.string().trim().max(500).nullish(),
   })
   .strict();
+
+export const updateInvestmentValuationSchema = investmentValuationSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, "No hay cambios para guardar");
 
 export const investmentPlanListSchema = z
   .object({
@@ -128,6 +141,9 @@ export type CreateInvestmentPlanInput = z.infer<typeof createInvestmentPlanSchem
 export type UpdateInvestmentPlanInput = z.infer<typeof updateInvestmentPlanSchema>;
 export type StartInvestmentPlanInput = z.infer<typeof startInvestmentPlanSchema>;
 export type InvestmentContributionInput = z.infer<typeof investmentContributionSchema>;
+export type UpdateInvestmentContributionInput = z.infer<typeof updateInvestmentContributionSchema>;
 export type InvestmentWithdrawalInput = z.infer<typeof investmentWithdrawalSchema>;
+export type UpdateInvestmentWithdrawalInput = z.infer<typeof updateInvestmentWithdrawalSchema>;
 export type InvestmentValuationInput = z.infer<typeof investmentValuationSchema>;
+export type UpdateInvestmentValuationInput = z.infer<typeof updateInvestmentValuationSchema>;
 export type InvestmentPlanListInput = z.infer<typeof investmentPlanListSchema>;
