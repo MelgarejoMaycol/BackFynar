@@ -6,11 +6,15 @@ import {
   createInvestmentPlanSchema,
   investmentContributionSchema,
   investmentPlanIdSchema,
+  investmentRecordIdSchema,
   investmentPlanListSchema,
   investmentValuationSchema,
   investmentWithdrawalSchema,
   startInvestmentPlanSchema,
+  updateInvestmentContributionSchema,
   updateInvestmentPlanSchema,
+  updateInvestmentValuationSchema,
+  updateInvestmentWithdrawalSchema,
 } from "./investments.schemas.js";
 
 const parse = <T>(schema: ZodType<T>, value: unknown): T => {
@@ -27,6 +31,8 @@ const route =
 
 const workspace = (request: Request) => request.workspace!.workspaceId;
 const planId = (request: Request) => parse(investmentPlanIdSchema, request.params.planId);
+const recordId = (request: Request, key: string) =>
+  parse(investmentRecordIdSchema, request.params[key]);
 
 export const list = route(async (request, response) =>
   response.json({
@@ -117,6 +123,31 @@ export const contribute = route(async (request, response) =>
   }),
 );
 
+export const updateContribution = route(async (request, response) =>
+  response.json({
+    success: true,
+    data: await service.updateContribution(
+      workspace(request),
+      request.auth!.userId,
+      planId(request),
+      recordId(request, "contributionId"),
+      parse(updateInvestmentContributionSchema, request.body),
+    ),
+  }),
+);
+
+export const deleteContribution = route(async (request, response) =>
+  response.json({
+    success: true,
+    data: await service.deleteContribution(
+      workspace(request),
+      request.auth!.userId,
+      planId(request),
+      recordId(request, "contributionId"),
+    ),
+  }),
+);
+
 export const withdraw = route(async (request, response) =>
   response.status(201).json({
     success: true,
@@ -129,6 +160,31 @@ export const withdraw = route(async (request, response) =>
   }),
 );
 
+export const updateWithdrawal = route(async (request, response) =>
+  response.json({
+    success: true,
+    data: await service.updateWithdrawal(
+      workspace(request),
+      request.auth!.userId,
+      planId(request),
+      recordId(request, "withdrawalId"),
+      parse(updateInvestmentWithdrawalSchema, request.body),
+    ),
+  }),
+);
+
+export const deleteWithdrawal = route(async (request, response) =>
+  response.json({
+    success: true,
+    data: await service.deleteWithdrawal(
+      workspace(request),
+      request.auth!.userId,
+      planId(request),
+      recordId(request, "withdrawalId"),
+    ),
+  }),
+);
+
 export const valuation = route(async (request, response) =>
   response.status(201).json({
     success: true,
@@ -137,6 +193,31 @@ export const valuation = route(async (request, response) =>
       request.auth!.userId,
       planId(request),
       parse(investmentValuationSchema, request.body),
+    ),
+  }),
+);
+
+export const updateValuation = route(async (request, response) =>
+  response.json({
+    success: true,
+    data: await service.updateValuation(
+      workspace(request),
+      request.auth!.userId,
+      planId(request),
+      recordId(request, "valuationId"),
+      parse(updateInvestmentValuationSchema, request.body),
+    ),
+  }),
+);
+
+export const deleteValuation = route(async (request, response) =>
+  response.json({
+    success: true,
+    data: await service.deleteValuation(
+      workspace(request),
+      request.auth!.userId,
+      planId(request),
+      recordId(request, "valuationId"),
     ),
   }),
 );
