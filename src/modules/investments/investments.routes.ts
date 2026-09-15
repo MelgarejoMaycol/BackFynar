@@ -15,7 +15,13 @@ router.post("/:planId/resume", requirePermission("transactions.write"), controll
 router.post("/:planId/complete", requirePermission("transactions.write"), controller.complete);
 router.post("/:planId/archive", requirePermission("transactions.write"), controller.archive);
 router.post("/:planId/contributions", requirePermission("transactions.write"), controller.contribute);
+router.patch("/:planId/contributions/:contributionId", requirePermission("transactions.write"), controller.updateContribution);
+router.delete("/:planId/contributions/:contributionId", requirePermission("transactions.write"), controller.deleteContribution);
 router.post("/:planId/withdrawals", requirePermission("transactions.write"), controller.withdraw);
+router.patch("/:planId/withdrawals/:withdrawalId", requirePermission("transactions.write"), controller.updateWithdrawal);
+router.delete("/:planId/withdrawals/:withdrawalId", requirePermission("transactions.write"), controller.deleteWithdrawal);
 router.post("/:planId/valuations", requirePermission("transactions.write"), controller.valuation);
+router.patch("/:planId/valuations/:valuationId", requirePermission("transactions.write"), controller.updateValuation);
+router.delete("/:planId/valuations/:valuationId", requirePermission("transactions.write"), controller.deleteValuation);
 
 export default router;
