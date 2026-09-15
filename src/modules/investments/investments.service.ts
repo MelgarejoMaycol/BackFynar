@@ -9,6 +9,9 @@ import type {
   InvestmentPlanListInput,
   InvestmentValuationInput,
   InvestmentWithdrawalInput,
+  UpdateInvestmentContributionInput,
+  UpdateInvestmentValuationInput,
+  UpdateInvestmentWithdrawalInput,
   StartInvestmentPlanInput,
   UpdateInvestmentPlanInput,
 } from "./investments.schemas.js";
@@ -340,6 +343,7 @@ export class InvestmentsService {
       progress,
       recentContributions: plan.contributions.map((entry) => ({
         id: entry.id,
+        transactionId: entry.transactionId,
         amount: fixed(entry.amount),
         occurredAt: entry.occurredAt.toISOString(),
         note: entry.note,
@@ -351,6 +355,7 @@ export class InvestmentsService {
       })),
       recentWithdrawals: plan.withdrawals.map((entry) => ({
         id: entry.id,
+        transactionId: entry.transactionId,
         amount: fixed(entry.amount),
         occurredAt: entry.occurredAt.toISOString(),
         note: entry.note,
@@ -688,6 +693,169 @@ export class InvestmentsService {
     return this.get(workspaceId, planId);
   }
 
+  async updateContribution(
+    workspaceId: string,
+    userId: string,
+    planId: string,
+    contributionId: string,
+    input: UpdateInvestmentContributionInput,
+  ) {
+    await this.db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM investment_plans WHERE workspace_id=${workspaceId}::uuid AND id=${planId}::uuid FOR UPDATE`,
+        );
+        const plan = await tx.investmentPlan.findFirst({ where: { id: planId, workspaceId } });
+        if (!plan) throw planNotFound();
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM investment_contributions WHERE workspace_id=${workspaceId}::uuid AND plan_id=${planId}::uuid AND id=${contributionId}::uuid FOR UPDATE`,
+        );
+        const current = await tx.investmentContribution.findFirst({
+          where: { id: contributionId, workspaceId, planId },
+          include: { transaction: true },
+        });
+        if (!current) throw new NotFoundError("Aporte de inversión no encontrado");
+
+        const nextAccountId = input.sourceAccountId ?? current.sourceAccountId;
+        const nextAmount = input.amount !== undefined ? D(input.amount) : current.amount;
+        const nextOccurredAt = new Date(input.occurredAt ?? current.occurredAt.toISOString());
+        const nextNote = input.note !== undefined ? input.note ?? null : current.note;
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM financial_accounts WHERE workspace_id=${workspaceId}::uuid AND id IN (${current.sourceAccountId}::uuid, ${nextAccountId}::uuid) FOR UPDATE`,
+        );
+
+        await tx.financialAccount.update({
+          where: { id: current.sourceAccountId },
+          data: { currentBalance: { increment: current.amount } },
+        });
+
+        const nextAccount = await tx.financialAccount.findFirst({
+          where: {
+            id: nextAccountId,
+            workspaceId,
+            nature: "ASSET",
+            isActive: true,
+            deletedAt: null,
+          },
+        });
+        if (!nextAccount || nextAccount.type === "LOAN" || nextAccount.type === "INVESTMENT")
+          throw new NotFoundError("Cuenta de origen no disponible para aportar");
+        if (nextAccount.currency.trim() !== plan.currency.trim())
+          throw new ValidationError("La cuenta y el plan deben usar la misma moneda.");
+
+        const reservations = await reservationsByAccount(tx, workspaceId);
+        const reserved =
+          reservations.find((item) => item.accountId === nextAccount.id)?.reservedForGoals ?? ZERO;
+        const available = nextAccount.currentBalance.minus(reserved);
+        if (available.lt(nextAmount))
+          throw new ConflictError(
+            "Saldo disponible insuficiente",
+            "La cuenta no tiene suficiente dinero libre para aplicar este cambio.",
+          );
+
+        await tx.financialAccount.update({
+          where: { id: nextAccount.id },
+          data: { currentBalance: { decrement: nextAmount } },
+        });
+        await tx.transaction.update({
+          where: { id: current.transactionId },
+          data: {
+            accountId: nextAccount.id,
+            amount: nextAmount,
+            occurredAt: nextOccurredAt,
+            notes: nextNote,
+            description: `Aporte a inversión · ${plan.name}`,
+            version: { increment: 1 },
+          },
+        });
+        await tx.investmentContribution.update({
+          where: { id: current.id },
+          data: {
+            sourceAccountId: nextAccount.id,
+            amount: nextAmount,
+            occurredAt: nextOccurredAt,
+            note: nextNote,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            workspaceId,
+            userId,
+            entityType: "INVESTMENT_CONTRIBUTION",
+            entityId: current.id,
+            action: "UPDATE",
+            oldData: json({
+              amount: fixed(current.amount),
+              occurredAt: current.occurredAt.toISOString(),
+              sourceAccountId: current.sourceAccountId,
+            }),
+            newData: json({
+              amount: fixed(nextAmount),
+              occurredAt: nextOccurredAt.toISOString(),
+              sourceAccountId: nextAccount.id,
+            }),
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return this.get(workspaceId, planId);
+  }
+
+  async deleteContribution(
+    workspaceId: string,
+    userId: string,
+    planId: string,
+    contributionId: string,
+  ) {
+    await this.db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM investment_contributions WHERE workspace_id=${workspaceId}::uuid AND plan_id=${planId}::uuid AND id=${contributionId}::uuid FOR UPDATE`,
+        );
+        const current = await tx.investmentContribution.findFirst({
+          where: { id: contributionId, workspaceId, planId },
+        });
+        if (!current) throw new NotFoundError("Aporte de inversión no encontrado");
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM financial_accounts WHERE workspace_id=${workspaceId}::uuid AND id=${current.sourceAccountId}::uuid FOR UPDATE`,
+        );
+        await tx.financialAccount.update({
+          where: { id: current.sourceAccountId },
+          data: { currentBalance: { increment: current.amount } },
+        });
+        await tx.investmentContribution.delete({ where: { id: current.id } });
+        await tx.transaction.update({
+          where: { id: current.transactionId },
+          data: {
+            status: "CANCELLED",
+            deletedAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            workspaceId,
+            userId,
+            entityType: "INVESTMENT_CONTRIBUTION",
+            entityId: current.id,
+            action: "DELETE",
+            oldData: json({
+              planId,
+              amount: fixed(current.amount),
+              sourceAccountId: current.sourceAccountId,
+            }),
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return this.get(workspaceId, planId);
+  }
+
   async withdraw(
     workspaceId: string,
     userId: string,
@@ -779,6 +947,182 @@ export class InvestmentsService {
     return this.get(workspaceId, planId);
   }
 
+  async updateWithdrawal(
+    workspaceId: string,
+    userId: string,
+    planId: string,
+    withdrawalId: string,
+    input: UpdateInvestmentWithdrawalInput,
+  ) {
+    await this.db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM investment_plans WHERE workspace_id=${workspaceId}::uuid AND id=${planId}::uuid FOR UPDATE`,
+        );
+        const plan = await tx.investmentPlan.findFirst({ where: { id: planId, workspaceId } });
+        if (!plan) throw planNotFound();
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM investment_withdrawals WHERE workspace_id=${workspaceId}::uuid AND plan_id=${planId}::uuid AND id=${withdrawalId}::uuid FOR UPDATE`,
+        );
+        const current = await tx.investmentWithdrawal.findFirst({
+          where: { id: withdrawalId, workspaceId, planId },
+        });
+        if (!current) throw new NotFoundError("Retiro de inversión no encontrado");
+
+        const nextAccountId = input.destinationAccountId ?? current.destinationAccountId;
+        const nextAmount = input.amount !== undefined ? D(input.amount) : current.amount;
+        const nextOccurredAt = new Date(input.occurredAt ?? current.occurredAt.toISOString());
+        const nextNote = input.note !== undefined ? input.note ?? null : current.note;
+
+        const tracked = await this.currentValue(tx, workspaceId, planId);
+        if (tracked.value.plus(current.amount).lt(nextAmount))
+          throw new ConflictError(
+            "Retiro superior al valor registrado",
+            "El nuevo retiro no puede superar el valor de la inversión antes de este movimiento.",
+          );
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM financial_accounts WHERE workspace_id=${workspaceId}::uuid AND id IN (${current.destinationAccountId}::uuid, ${nextAccountId}::uuid) FOR UPDATE`,
+        );
+        const oldAccount = await tx.financialAccount.findFirst({
+          where: { id: current.destinationAccountId, workspaceId, deletedAt: null },
+        });
+        if (!oldAccount) throw new NotFoundError("Cuenta anterior del retiro no disponible");
+        if (oldAccount.currentBalance.lt(current.amount))
+          throw new ConflictError(
+            "No se puede modificar este retiro",
+            "La cuenta que recibió el retiro ya no tiene saldo suficiente para revertir el movimiento anterior.",
+          );
+        await tx.financialAccount.update({
+          where: { id: oldAccount.id },
+          data: { currentBalance: { decrement: current.amount } },
+        });
+
+        const nextAccount = await tx.financialAccount.findFirst({
+          where: {
+            id: nextAccountId,
+            workspaceId,
+            nature: "ASSET",
+            isActive: true,
+            deletedAt: null,
+          },
+        });
+        if (!nextAccount || nextAccount.type === "LOAN" || nextAccount.type === "INVESTMENT")
+          throw new NotFoundError("Cuenta de destino no disponible para el retiro");
+        if (nextAccount.currency.trim() !== plan.currency.trim())
+          throw new ValidationError("La cuenta de destino y el plan deben usar la misma moneda.");
+
+        await tx.financialAccount.update({
+          where: { id: nextAccount.id },
+          data: { currentBalance: { increment: nextAmount } },
+        });
+        await tx.transaction.update({
+          where: { id: current.transactionId },
+          data: {
+            accountId: nextAccount.id,
+            amount: nextAmount,
+            occurredAt: nextOccurredAt,
+            notes: nextNote,
+            description: `Retiro de inversión · ${plan.name}`,
+            version: { increment: 1 },
+          },
+        });
+        await tx.investmentWithdrawal.update({
+          where: { id: current.id },
+          data: {
+            destinationAccountId: nextAccount.id,
+            amount: nextAmount,
+            occurredAt: nextOccurredAt,
+            note: nextNote,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            workspaceId,
+            userId,
+            entityType: "INVESTMENT_WITHDRAWAL",
+            entityId: current.id,
+            action: "UPDATE",
+            oldData: json({
+              amount: fixed(current.amount),
+              occurredAt: current.occurredAt.toISOString(),
+              destinationAccountId: current.destinationAccountId,
+            }),
+            newData: json({
+              amount: fixed(nextAmount),
+              occurredAt: nextOccurredAt.toISOString(),
+              destinationAccountId: nextAccount.id,
+            }),
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return this.get(workspaceId, planId);
+  }
+
+  async deleteWithdrawal(
+    workspaceId: string,
+    userId: string,
+    planId: string,
+    withdrawalId: string,
+  ) {
+    await this.db.$transaction(
+      async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM investment_withdrawals WHERE workspace_id=${workspaceId}::uuid AND plan_id=${planId}::uuid AND id=${withdrawalId}::uuid FOR UPDATE`,
+        );
+        const current = await tx.investmentWithdrawal.findFirst({
+          where: { id: withdrawalId, workspaceId, planId },
+        });
+        if (!current) throw new NotFoundError("Retiro de inversión no encontrado");
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM financial_accounts WHERE workspace_id=${workspaceId}::uuid AND id=${current.destinationAccountId}::uuid FOR UPDATE`,
+        );
+        const account = await tx.financialAccount.findFirst({
+          where: { id: current.destinationAccountId, workspaceId, deletedAt: null },
+        });
+        if (!account) throw new NotFoundError("Cuenta de destino no disponible");
+        if (account.currentBalance.lt(current.amount))
+          throw new ConflictError(
+            "No se puede eliminar este retiro",
+            "La cuenta que recibió el dinero ya no tiene saldo suficiente para revertirlo.",
+          );
+        await tx.financialAccount.update({
+          where: { id: account.id },
+          data: { currentBalance: { decrement: current.amount } },
+        });
+        await tx.investmentWithdrawal.delete({ where: { id: current.id } });
+        await tx.transaction.update({
+          where: { id: current.transactionId },
+          data: {
+            status: "CANCELLED",
+            deletedAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            workspaceId,
+            userId,
+            entityType: "INVESTMENT_WITHDRAWAL",
+            entityId: current.id,
+            action: "DELETE",
+            oldData: json({
+              planId,
+              amount: fixed(current.amount),
+              destinationAccountId: current.destinationAccountId,
+            }),
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return this.get(workspaceId, planId);
+  }
+
   async addValuation(
     workspaceId: string,
     userId: string,
@@ -807,6 +1151,73 @@ export class InvestmentsService {
         entityId: valuation.id,
         action: "CREATE",
         newData: json({ planId, value: input.value }),
+      },
+    });
+    return this.get(workspaceId, planId);
+  }
+
+  async updateValuation(
+    workspaceId: string,
+    userId: string,
+    planId: string,
+    valuationId: string,
+    input: UpdateInvestmentValuationInput,
+  ) {
+    const current = await this.db.investmentValuation.findFirst({
+      where: { id: valuationId, workspaceId, planId },
+    });
+    if (!current) throw new NotFoundError("Valoración de inversión no encontrada");
+    const updated = await this.db.investmentValuation.update({
+      where: { id: current.id },
+      data: {
+        ...(input.value !== undefined ? { value: D(input.value) } : {}),
+        ...(input.capturedAt !== undefined ? { capturedAt: new Date(input.capturedAt) } : {}),
+        ...(input.note !== undefined ? { note: input.note ?? null } : {}),
+      },
+    });
+    await this.db.auditLog.create({
+      data: {
+        workspaceId,
+        userId,
+        entityType: "INVESTMENT_VALUATION",
+        entityId: current.id,
+        action: "UPDATE",
+        oldData: json({
+          value: fixed(current.value),
+          capturedAt: current.capturedAt.toISOString(),
+        }),
+        newData: json({
+          value: fixed(updated.value),
+          capturedAt: updated.capturedAt.toISOString(),
+        }),
+      },
+    });
+    return this.get(workspaceId, planId);
+  }
+
+  async deleteValuation(
+    workspaceId: string,
+    userId: string,
+    planId: string,
+    valuationId: string,
+  ) {
+    const current = await this.db.investmentValuation.findFirst({
+      where: { id: valuationId, workspaceId, planId },
+    });
+    if (!current) throw new NotFoundError("Valoración de inversión no encontrada");
+    await this.db.investmentValuation.delete({ where: { id: current.id } });
+    await this.db.auditLog.create({
+      data: {
+        workspaceId,
+        userId,
+        entityType: "INVESTMENT_VALUATION",
+        entityId: current.id,
+        action: "DELETE",
+        oldData: json({
+          planId,
+          value: fixed(current.value),
+          capturedAt: current.capturedAt.toISOString(),
+        }),
       },
     });
     return this.get(workspaceId, planId);
