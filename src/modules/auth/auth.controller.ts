@@ -194,6 +194,13 @@ export const googleCallback = execute(async (request, response) => {
     const profile = await googleOAuthService.exchangeCode(code);
     try {
       const result = await authService.loginWithGoogle(profile, false, metadata(request));
+      if (result.requiresMfa)
+        throw new AppError("MFA no disponible en Google", {
+          status: 409,
+          code: "MFA_GOOGLE_FLOW_UNAVAILABLE",
+          safeToExpose: true,
+          publicMessage: "Inicia sesión con correo y contraseña para completar la verificación en dos pasos",
+        });
       setRefreshCookie(response, result.tokens.refreshToken);
       destination.searchParams.set("status", "success");
       // Safari/iOS bloquea cookies de terceros entre onrender.com y vercel.app.
@@ -239,6 +246,13 @@ export const completeGoogleRegistration = execute(async (request, response) => {
   try {
     const profile = await googleOAuthService.consumePending(pendingToken);
     const result = await authService.loginWithGoogle(profile, true, metadata(request));
+    if (result.requiresMfa)
+      throw new AppError("MFA no disponible en Google", {
+        status: 409,
+        code: "MFA_GOOGLE_FLOW_UNAVAILABLE",
+        safeToExpose: true,
+        publicMessage: "Inicia sesión con correo y contraseña para completar la verificación en dos pasos",
+      });
     setRefreshCookie(response, result.tokens.refreshToken);
     response.status(200).json({
       success: true,
