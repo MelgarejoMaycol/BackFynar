@@ -80,3 +80,7 @@ export const mfaChallengeSchema = z
 export const mfaCodeSchema = z
   .object({ code: z.string().trim().min(6).max(32) })
   .strict();
+
+export const mfaSetupSchema = z
+  .object({ currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH) })
+  .strict();
