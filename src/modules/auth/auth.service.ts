@@ -482,7 +482,21 @@ export class AuthService {
     };
   }
 
-  async setupTotp(userId: string) {
+  async setupTotp(userId: string, currentPassword: string) {
+    const userForPassword = await this.database.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+    const passwordValid = await this.passwords.verify(
+      userForPassword?.passwordHash ?? DUMMY_PASSWORD_HASH,
+      currentPassword,
+    );
+    if (!userForPassword || !passwordValid)
+      throw new UnauthorizedError(
+        "Contraseña actual incorrecta",
+        "La contraseña actual no es correcta",
+      );
+
     const status = await this.getMfaStatus(userId);
     if (!status.available)
       throw new AppError("MFA no disponible", {
