@@ -6,7 +6,7 @@ services:
     branch: main
     autoDeployTrigger: commit
     buildCommand: npm ci --include=dev
-    startCommand: npm start
+    startCommand: npm run prisma:migrate:deploy && npm start
     healthCheckPath: /api/v1/health/live
     envVars:
       - key: NODE_VERSION
