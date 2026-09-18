@@ -731,6 +731,51 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+model MfaMethod {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String          @map("user_id") @db.Uuid
+  type            mfa_method_type
+  secretEncrypted String          @map("secret_encrypted")
+  verifiedAt      DateTime?       @map("verified_at") @db.Timestamptz(6)
+  enabledAt       DateTime?       @map("enabled_at") @db.Timestamptz(6)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([userId, type], map: "uq_mfa_methods_user_type")
+  @@index([userId, enabledAt], map: "idx_mfa_methods_user_enabled")
+  @@map("mfa_methods")
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @unique @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, usedAt], map: "idx_mfa_recovery_user_unused")
+  @@map("mfa_recovery_codes")
+}
+
+model MfaChallenge {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  deviceName String?   @map("device_name") @db.VarChar(150)
+  ipAddress  String?   @map("ip_address") @db.Inet
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, consumedAt], map: "idx_mfa_challenges_user_active")
+  @@index([expiresAt], map: "idx_mfa_challenges_expires")
+  @@map("mfa_challenges")
+}
+
 model PasswordResetToken {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId           String    @map("user_id") @db.Uuid
@@ -1277,6 +1322,9 @@ model User {
   emailVerificationTokens                          EmailVerificationToken[]
   emailChangeRequests                              EmailChangeRequest[]
   refreshTokens                                    RefreshToken[]
+  mfaMethods                                        MfaMethod[]
+  mfaRecoveryCodes                                  MfaRecoveryCode[]
+  mfaChallenges                                     MfaChallenge[]
   transactionAttachments                           TransactionAttachment[]
   transactions                                     Transaction[]
   cardPaymentExpectations                          CardPaymentExpectation[]
@@ -1504,6 +1552,10 @@ enum provider_type {
   LOCAL
   GOOGLE
   APPLE
+}
+
+enum mfa_method_type {
+  TOTP
 }
 
 enum recurrence_frequency {
