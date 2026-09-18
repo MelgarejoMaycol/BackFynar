@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      BASE_URL: https://backfynar-z8mf.onrender.com
+      BASE_URL: https://fynarback.onrender.com
       FRONTEND_API_URL: https://fynar.vercel.app/api/v1
     steps:
       - name: Wait for deployed API and health
@@ -23,18 +23,21 @@ jobs:
           for attempt in $(seq 1 30); do
             root_status=$(curl --silent --show-error --max-time 30 -o root.json -w '%{http_code}' "$BASE_URL/" || true)
             health_status=$(curl --silent --show-error --max-time 30 -o health.json -w '%{http_code}' "$BASE_URL/api/v1/health/live" || true)
-            if [ "$root_status" = "200" ] && [ "$health_status" = "200" ]; then
+            ready_status=$(curl --silent --show-error --max-time 30 -o ready.json -w '%{http_code}' "$BASE_URL/api/v1/health/ready" || true)
+            if [ "$root_status" = "200" ] && [ "$health_status" = "200" ] && [ "$ready_status" = "200" ]; then
               node - <<'NODE'
           const fs = require('node:fs');
           const root = JSON.parse(fs.readFileSync('root.json', 'utf8'));
           const health = JSON.parse(fs.readFileSync('health.json', 'utf8'));
+          const ready = JSON.parse(fs.readFileSync('ready.json', 'utf8'));
           if (root?.success !== true || root?.data?.status !== 'ok') process.exit(1);
-          if (health?.success !== true) process.exit(1);
+          if (health?.success !== true || health?.data?.status !== 'ok') process.exit(1);
+          if (ready?.success !== true || ready?.data?.ready !== true || ready?.data?.status !== 'connected') process.exit(1);
           NODE
-              echo "API saludable en intento $attempt"
+              echo "API y base de datos saludables en intento $attempt"
               exit 0
             fi
-            echo "Esperando despliegue de Render ($attempt/30): root=$root_status health=$health_status"
+            echo "Esperando despliegue de Render ($attempt/30): root=$root_status health=$health_status ready=$ready_status"
             sleep 10
           done
           echo "El backend desplegado no quedó saludable a tiempo"
@@ -145,3 +148,27 @@ jobs:
           done
           echo "Las rutas de las partes 5/6 no quedaron disponibles/protegidas a tiempo"
           exit 1
+
+      - name: Verify MFA routes are deployed and protected
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_code=$(curl --silent --show-error --max-time 30             -o mfa-status-unauthorized.json -w '%{http_code}'             "$BASE_URL/api/v1/auth/mfa/status" || true)
+          verify_code=$(curl --silent --show-error --max-time 30             -H 'Content-Type: application/json'             -d '{"challengeToken":"invalid-challenge-token-that-is-long-enough-123456","code":"000000"}'             -o mfa-verify-invalid.json -w '%{http_code}'             "$BASE_URL/api/v1/auth/mfa/verify" || true)
+
+          if [ "$status_code" != "401" ] || [ "$verify_code" != "401" ]; then
+            echo "Las rutas MFA no responden como se esperaba: status=$status_code verify=$verify_code"
+            cat mfa-status-unauthorized.json || true
+            cat mfa-verify-invalid.json || true
+            exit 1
+          fi
+
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const status = JSON.parse(fs.readFileSync('mfa-status-unauthorized.json', 'utf8'));
+          const verify = JSON.parse(fs.readFileSync('mfa-verify-invalid.json', 'utf8'));
+          if (status?.error?.code !== 'UNAUTHORIZED') process.exit(1);
+          if (verify?.error?.code !== 'UNAUTHORIZED') process.exit(1);
+          NODE
+
+          echo "Rutas MFA desplegadas y protegidas correctamente"
