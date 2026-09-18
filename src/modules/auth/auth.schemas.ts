@@ -69,3 +69,14 @@ export const requestEmailChangeSchema = z
   })
   .strict();
 export const confirmEmailChangeSchema = z.object({ token: z.string().min(32).max(512) }).strict();
+
+export const mfaChallengeSchema = z
+  .object({
+    challengeToken: z.string().min(32).max(512),
+    code: z.string().trim().min(6).max(32),
+  })
+  .strict();
+
+export const mfaCodeSchema = z
+  .object({ code: z.string().trim().min(6).max(32) })
+  .strict();
