@@ -351,10 +351,12 @@ export const sessions = execute(async (request, response) => {
   });
 });
 export const revokeSession = execute(async (request, response) => {
+  const sessionId =
+    typeof request.params.sessionId === "string" ? request.params.sessionId : "";
   await authService.revokeSession(
     request.auth!.userId,
     request.auth!.sessionId,
-    request.params.sessionId ?? "",
+    sessionId,
   );
   response.status(204).send();
 });
