@@ -7,6 +7,16 @@ import { AppError, ConflictError, UnauthorizedError } from "../../common/errors/
 import { logger } from "../../common/logging/logger.js";
 import { passwordService, type PasswordService } from "./auth-password.service.js";
 import { createOpaqueToken, hashOpaqueToken, signAccessToken } from "./auth-token.service.js";
+import {
+  buildOtpAuthUri,
+  decryptMfaSecret,
+  encryptMfaSecret,
+  generateRecoveryCodes,
+  generateTotpSecret,
+  hashRecoveryCode,
+  looksLikeRecoveryCode,
+  verifyTotp,
+} from "./mfa.crypto.js";
 import { EmailProviderError, emailService, type EmailService } from "./email.service.js";
 import type { RegisterInput } from "./auth.schemas.js";
 
@@ -49,6 +59,42 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly emails: EmailService,
   ) {}
+
+  private async hasEnabledTotp(userId: string): Promise<boolean> {
+    return (
+      (await this.database.mfaMethod.count({
+        where: { userId, type: "TOTP", enabledAt: { not: null } },
+      })) > 0
+    );
+  }
+
+  private async createMfaChallenge(userId: string, metadata: SessionMetadata) {
+    const rawToken = createOpaqueToken();
+    await this.database.mfaChallenge.create({
+      data: {
+        userId,
+        tokenHash: hashOpaqueToken(rawToken),
+        expiresAt: new Date(Date.now() + 5 * 60_000),
+        ...metadata,
+      },
+    });
+    return rawToken;
+  }
+
+  private async primaryAuthResult(userId: string, metadata: SessionMetadata) {
+    if (await this.hasEnabledTotp(userId)) {
+      return {
+        requiresMfa: true as const,
+        challengeToken: await this.createMfaChallenge(userId, metadata),
+        methods: ["TOTP", "RECOVERY_CODE"] as const,
+      };
+    }
+    return {
+      requiresMfa: false as const,
+      user: await this.me(userId),
+      tokens: await this.createSession(userId, metadata),
+    };
+  }
 
   private async createSession(userId: string, metadata: SessionMetadata) {
     const refreshToken = createOpaqueToken();
@@ -164,7 +210,7 @@ export class AuthService {
         publicMessage: "Tu correo todavía no ha sido verificado",
       });
     await this.database.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-    return { user: await this.me(user.id), tokens: await this.createSession(user.id, metadata) };
+    return this.primaryAuthResult(user.id, metadata);
   }
 
   async refresh(rawToken: string, metadata: SessionMetadata) {
@@ -407,7 +453,251 @@ export class AuthService {
       }
     }
     await this.database.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
-    return { user: await this.me(userId), tokens: await this.createSession(userId, metadata) };
+    return this.primaryAuthResult(userId, metadata);
+  }
+
+  async getMfaStatus(userId: string) {
+    const identities = await this.database.authIdentity.findMany({
+      where: { userId },
+      select: { provider: true },
+    });
+    const providers = new Set(identities.map((identity) => identity.provider));
+    const available = providers.has("LOCAL") && !providers.has("GOOGLE");
+    const method = await this.database.mfaMethod.findUnique({
+      where: { userId_type: { userId, type: "TOTP" } },
+      select: { enabledAt: true, verifiedAt: true },
+    });
+    const recoveryCodesRemaining = await this.database.mfaRecoveryCode.count({
+      where: { userId, usedAt: null },
+    });
+    return {
+      enabled: Boolean(method?.enabledAt),
+      available,
+      unavailableReason: available
+        ? null
+        : providers.has("GOOGLE")
+          ? "Por ahora el 2FA de Fynar se habilita únicamente en cuentas que inician sesión solo con contraseña."
+          : "Configura primero una contraseña local para activar 2FA.",
+      recoveryCodesRemaining,
+    };
+  }
+
+  async setupTotp(userId: string, currentPassword: string) {
+    const userForPassword = await this.database.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+    const passwordValid = await this.passwords.verify(
+      userForPassword?.passwordHash ?? DUMMY_PASSWORD_HASH,
+      currentPassword,
+    );
+    if (!userForPassword || !passwordValid)
+      throw new UnauthorizedError(
+        "Contraseña actual incorrecta",
+        "La contraseña actual no es correcta",
+      );
+
+    const status = await this.getMfaStatus(userId);
+    if (!status.available)
+      throw new AppError("MFA no disponible", {
+        status: 400,
+        code: "MFA_NOT_AVAILABLE",
+        safeToExpose: true,
+        publicMessage: status.unavailableReason ?? "2FA no está disponible para esta cuenta",
+      });
+    if (status.enabled)
+      throw new ConflictError("MFA ya activo", "La autenticación en dos pasos ya está activa");
+
+    const user = await this.database.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { email: true },
+    });
+    const secret = generateTotpSecret();
+    await this.database.mfaMethod.upsert({
+      where: { userId_type: { userId, type: "TOTP" } },
+      create: { userId, type: "TOTP", secretEncrypted: encryptMfaSecret(secret) },
+      update: {
+        secretEncrypted: encryptMfaSecret(secret),
+        verifiedAt: null,
+        enabledAt: null,
+      },
+    });
+    return { secret, otpauthUri: buildOtpAuthUri(user.email, secret) };
+  }
+
+  async confirmTotp(userId: string, code: string) {
+    const method = await this.database.mfaMethod.findUnique({
+      where: { userId_type: { userId, type: "TOTP" } },
+    });
+    if (!method || method.enabledAt)
+      throw new AppError("Configuración MFA inválida", {
+        status: 400,
+        code: "MFA_SETUP_INVALID",
+        safeToExpose: true,
+        publicMessage: "Inicia nuevamente la configuración de 2FA",
+      });
+    if (!verifyTotp(decryptMfaSecret(method.secretEncrypted), code))
+      throw new UnauthorizedError("Código TOTP inválido", "El código de verificación no es válido");
+
+    const recoveryCodes = generateRecoveryCodes();
+    const now = new Date();
+    await this.database.$transaction(async (tx) => {
+      await tx.mfaMethod.update({
+        where: { id: method.id },
+        data: { verifiedAt: now, enabledAt: now },
+      });
+      await tx.mfaRecoveryCode.deleteMany({ where: { userId } });
+      await tx.mfaRecoveryCode.createMany({
+        data: recoveryCodes.map((recoveryCode) => ({
+          userId,
+          codeHash: hashRecoveryCode(recoveryCode),
+        })),
+      });
+    });
+    return { recoveryCodes };
+  }
+
+  private async verifyMfaCode(userId: string, code: string): Promise<boolean> {
+    const method = await this.database.mfaMethod.findUnique({
+      where: { userId_type: { userId, type: "TOTP" } },
+    });
+    if (!method?.enabledAt) return false;
+    if (verifyTotp(decryptMfaSecret(method.secretEncrypted), code)) return true;
+    if (!looksLikeRecoveryCode(code)) return false;
+    const codeHash = hashRecoveryCode(code);
+    const recovery = await this.database.mfaRecoveryCode.findFirst({
+      where: { userId, codeHash, usedAt: null },
+      select: { id: true },
+    });
+    if (!recovery) return false;
+    const used = await this.database.mfaRecoveryCode.updateMany({
+      where: { id: recovery.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    return used.count === 1;
+  }
+
+  async verifyMfaChallenge(challengeToken: string, code: string, metadata: SessionMetadata) {
+    const challenge = await this.database.mfaChallenge.findUnique({
+      where: { tokenHash: hashOpaqueToken(challengeToken) },
+      include: { user: { select: { isActive: true, deletedAt: true } } },
+    });
+    if (
+      !challenge ||
+      challenge.consumedAt ||
+      challenge.expiresAt <= new Date() ||
+      challenge.attempts >= 5 ||
+      !challenge.user.isActive ||
+      challenge.user.deletedAt
+    )
+      throw new UnauthorizedError("Desafío MFA inválido", "La verificación expiró. Inicia sesión de nuevo.");
+
+    const valid = await this.verifyMfaCode(challenge.userId, code);
+    if (!valid) {
+      await this.database.mfaChallenge.update({
+        where: { id: challenge.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new UnauthorizedError("Código MFA inválido", "El código no es válido");
+    }
+
+    await this.database.mfaChallenge.update({
+      where: { id: challenge.id },
+      data: { consumedAt: new Date() },
+    });
+    return {
+      user: await this.me(challenge.userId),
+      tokens: await this.createSession(challenge.userId, metadata),
+    };
+  }
+
+  async disableTotp(userId: string, code: string): Promise<void> {
+    if (!(await this.verifyMfaCode(userId, code)))
+      throw new UnauthorizedError("Código MFA inválido", "El código no es válido");
+    await this.database.$transaction(async (tx) => {
+      await tx.mfaRecoveryCode.deleteMany({ where: { userId } });
+      await tx.mfaChallenge.deleteMany({ where: { userId } });
+      await tx.mfaMethod.deleteMany({ where: { userId, type: "TOTP" } });
+    });
+  }
+
+  async regenerateRecoveryCodes(userId: string, code: string) {
+    if (!(await this.verifyMfaCode(userId, code)))
+      throw new UnauthorizedError("Código MFA inválido", "El código no es válido");
+    const recoveryCodes = generateRecoveryCodes();
+    await this.database.$transaction(async (tx) => {
+      await tx.mfaRecoveryCode.deleteMany({ where: { userId } });
+      await tx.mfaRecoveryCode.createMany({
+        data: recoveryCodes.map((recoveryCode) => ({
+          userId,
+          codeHash: hashRecoveryCode(recoveryCode),
+        })),
+      });
+    });
+    return { recoveryCodes };
+  }
+
+  async listSessions(userId: string, currentSessionId: string) {
+    const current = await this.database.refreshToken.findUnique({
+      where: { id: currentSessionId },
+      select: { familyId: true },
+    });
+    const rows = await this.database.refreshToken.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+      select: {
+        familyId: true,
+        deviceName: true,
+        ipAddress: true,
+        userAgent: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+    });
+    const families = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) if (!families.has(row.familyId)) families.set(row.familyId, row);
+    return [...families.values()].map((row) => ({
+      id: row.familyId,
+      deviceName: row.deviceName,
+      ipAddress: row.ipAddress,
+      userAgent: row.userAgent,
+      lastActivityAt: row.createdAt,
+      expiresAt: row.expiresAt,
+      current: row.familyId === current?.familyId,
+    }));
+  }
+
+  async revokeSession(userId: string, currentSessionId: string, familyId: string): Promise<void> {
+    const current = await this.database.refreshToken.findUnique({
+      where: { id: currentSessionId },
+      select: { familyId: true },
+    });
+    if (current?.familyId === familyId)
+      throw new AppError("Sesión actual", {
+        status: 400,
+        code: "CURRENT_SESSION",
+        safeToExpose: true,
+        publicMessage: "Usa 'Cerrar sesión' para finalizar este dispositivo",
+      });
+    await this.database.refreshToken.updateMany({
+      where: { userId, familyId, revokedAt: null },
+      data: { revokedAt: new Date(), revocationReason: "SESSION_REVOKED" },
+    });
+  }
+
+  async revokeOtherSessions(userId: string, currentSessionId: string): Promise<void> {
+    const current = await this.database.refreshToken.findUnique({
+      where: { id: currentSessionId },
+      select: { familyId: true },
+    });
+    await this.database.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(current ? { familyId: { not: current.familyId } } : {}),
+      },
+      data: { revokedAt: new Date(), revocationReason: "OTHER_SESSIONS_REVOKED" },
+    });
   }
 
   async resendVerification(email: string, metadata: SessionMetadata): Promise<void> {

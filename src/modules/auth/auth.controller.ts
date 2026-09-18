@@ -14,6 +14,9 @@ import {
   googleLegalAcceptanceSchema,
   requestEmailChangeSchema,
   confirmEmailChangeSchema,
+  mfaChallengeSchema,
+  mfaCodeSchema,
+  mfaSetupSchema,
 } from "./auth.schemas.js";
 import {
   clearGooglePendingCookie,
@@ -70,6 +73,10 @@ export const resendVerification = execute(async (request, response) => {
 export const login = execute(async (request, response) => {
   const input = parse(loginSchema, request.body);
   const result = await authService.login(input.email, input.password, metadata(request));
+  if (result.requiresMfa) {
+    response.status(200).json({ success: true, data: result });
+    return;
+  }
   setRefreshCookie(response, result.tokens.refreshToken);
   response.status(200).json({
     success: true,
@@ -188,6 +195,13 @@ export const googleCallback = execute(async (request, response) => {
     const profile = await googleOAuthService.exchangeCode(code);
     try {
       const result = await authService.loginWithGoogle(profile, false, metadata(request));
+      if (result.requiresMfa)
+        throw new AppError("MFA no disponible en Google", {
+          status: 409,
+          code: "MFA_GOOGLE_FLOW_UNAVAILABLE",
+          safeToExpose: true,
+          publicMessage: "Inicia sesión con correo y contraseña para completar la verificación en dos pasos",
+        });
       setRefreshCookie(response, result.tokens.refreshToken);
       destination.searchParams.set("status", "success");
       // Safari/iOS bloquea cookies de terceros entre onrender.com y vercel.app.
@@ -233,6 +247,13 @@ export const completeGoogleRegistration = execute(async (request, response) => {
   try {
     const profile = await googleOAuthService.consumePending(pendingToken);
     const result = await authService.loginWithGoogle(profile, true, metadata(request));
+    if (result.requiresMfa)
+      throw new AppError("MFA no disponible en Google", {
+        status: 409,
+        code: "MFA_GOOGLE_FLOW_UNAVAILABLE",
+        safeToExpose: true,
+        publicMessage: "Inicia sesión con correo y contraseña para completar la verificación en dos pasos",
+      });
     setRefreshCookie(response, result.tokens.refreshToken);
     response.status(200).json({
       success: true,
@@ -271,5 +292,77 @@ export const getPendingEmailChange = execute(async (request, response) => {
 });
 export const cancelEmailChange = execute(async (request, response) => {
   await authService.cancelEmailChange(request.auth!.userId);
+  response.status(204).send();
+});
+
+export const mfaStatus = execute(async (request, response) => {
+  response.status(200).json({
+    success: true,
+    data: await authService.getMfaStatus(request.auth!.userId),
+  });
+});
+export const mfaSetup = execute(async (request, response) => {
+  const { currentPassword } = parse(mfaSetupSchema, request.body);
+  response.status(200).json({
+    success: true,
+    data: await authService.setupTotp(request.auth!.userId, currentPassword),
+  });
+});
+export const mfaConfirm = execute(async (request, response) => {
+  const { code } = parse(mfaCodeSchema, request.body);
+  response.status(200).json({
+    success: true,
+    data: await authService.confirmTotp(request.auth!.userId, code),
+  });
+});
+export const mfaVerify = execute(async (request, response) => {
+  const input = parse(mfaChallengeSchema, request.body);
+  const result = await authService.verifyMfaChallenge(
+    input.challengeToken,
+    input.code,
+    metadata(request),
+  );
+  setRefreshCookie(response, result.tokens.refreshToken);
+  response.status(200).json({
+    success: true,
+    data: {
+      user: result.user,
+      tokens: {
+        accessToken: result.tokens.accessToken,
+        accessTokenExpiresInSeconds: result.tokens.accessTokenExpiresInSeconds,
+      },
+    },
+  });
+});
+export const mfaDisable = execute(async (request, response) => {
+  const { code } = parse(mfaCodeSchema, request.body);
+  await authService.disableTotp(request.auth!.userId, code);
+  response.status(204).send();
+});
+export const mfaRecoveryRegenerate = execute(async (request, response) => {
+  const { code } = parse(mfaCodeSchema, request.body);
+  response.status(200).json({
+    success: true,
+    data: await authService.regenerateRecoveryCodes(request.auth!.userId, code),
+  });
+});
+export const sessions = execute(async (request, response) => {
+  response.status(200).json({
+    success: true,
+    data: await authService.listSessions(request.auth!.userId, request.auth!.sessionId),
+  });
+});
+export const revokeSession = execute(async (request, response) => {
+  const sessionId =
+    typeof request.params.sessionId === "string" ? request.params.sessionId : "";
+  await authService.revokeSession(
+    request.auth!.userId,
+    request.auth!.sessionId,
+    sessionId,
+  );
+  response.status(204).send();
+});
+export const revokeOtherSessions = execute(async (request, response) => {
+  await authService.revokeOtherSessions(request.auth!.userId, request.auth!.sessionId);
   response.status(204).send();
 });

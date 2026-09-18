@@ -50,5 +50,19 @@ authRouter.post("/change-password", authenticate, limiter(5), controller.changeP
 authRouter.get("/me", authenticate, controller.me);
 authRouter.post("/forgot-password", limiter(5), controller.forgotPassword);
 authRouter.post("/reset-password", limiter(5), controller.resetPassword);
+authRouter.get("/mfa/status", authenticate, controller.mfaStatus);
+authRouter.post("/mfa/totp/setup", authenticate, limiter(5), controller.mfaSetup);
+authRouter.post("/mfa/totp/confirm", authenticate, limiter(8), controller.mfaConfirm);
+authRouter.post("/mfa/verify", limiter(8), controller.mfaVerify);
+authRouter.post("/mfa/disable", authenticate, limiter(5), controller.mfaDisable);
+authRouter.post(
+  "/mfa/recovery-codes/regenerate",
+  authenticate,
+  limiter(5),
+  controller.mfaRecoveryRegenerate,
+);
+authRouter.get("/sessions", authenticate, controller.sessions);
+authRouter.delete("/sessions/others", authenticate, controller.revokeOtherSessions);
+authRouter.delete("/sessions/:sessionId", authenticate, controller.revokeSession);
 
 export default authRouter;

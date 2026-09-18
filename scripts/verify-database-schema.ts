@@ -29,6 +29,9 @@ const expectedTables = [
   "goal_contributions",
   "google_oauth_flows",
   "merchant_category_rules",
+  "mfa_challenges",
+  "mfa_methods",
+  "mfa_recovery_codes",
   "notifications",
   "obligation_occurrences",
   "outbox_events",
@@ -65,6 +68,7 @@ const expectedEnums = [
   "interest_type",
   "interest_rate_basis",
   "member_status",
+  "mfa_method_type",
   "notification_type",
   "obligation_status",
   "provider_type",
@@ -108,6 +112,10 @@ const expectedIndexes = [
   "idx_refresh_tokens_family",
   "idx_refresh_tokens_user_active",
   "idx_refresh_tokens_expires",
+  "idx_mfa_methods_user_enabled",
+  "idx_mfa_recovery_user_unused",
+  "idx_mfa_challenges_user_active",
+  "idx_mfa_challenges_expires",
 ] as const;
 const expectedTriggers = [
   "trg_users_updated_at",

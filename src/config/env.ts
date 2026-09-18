@@ -56,6 +56,11 @@ const schema = z.object({
   JWT_AUDIENCE: z.string().min(1).default("fynar-clients"),
   JWT_ACCESS_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  MFA_ISSUER: z.string().min(1).max(80).default("Fynar"),
+  MFA_ENCRYPTION_KEY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(32).optional(),
+  ),
   EMAIL_PROVIDER: z.enum(["console", "resend", "brevo"]).default("console"),
   RESEND_API_KEY: z.preprocess(
     (value) => (value === "" ? undefined : value),
