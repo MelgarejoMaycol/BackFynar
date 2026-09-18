@@ -16,6 +16,7 @@ import {
   confirmEmailChangeSchema,
   mfaChallengeSchema,
   mfaCodeSchema,
+  mfaSetupSchema,
 } from "./auth.schemas.js";
 import {
   clearGooglePendingCookie,
@@ -301,9 +302,10 @@ export const mfaStatus = execute(async (request, response) => {
   });
 });
 export const mfaSetup = execute(async (request, response) => {
+  const { currentPassword } = parse(mfaSetupSchema, request.body);
   response.status(200).json({
     success: true,
-    data: await authService.setupTotp(request.auth!.userId),
+    data: await authService.setupTotp(request.auth!.userId, currentPassword),
   });
 });
 export const mfaConfirm = execute(async (request, response) => {
